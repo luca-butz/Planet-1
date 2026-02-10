@@ -32,7 +32,7 @@ function SceneManager({ view, setView }) {
         return <SurfaceScene />
     }
 
-    return <SpaceScene onLand={startTransition} />
+    return <SpaceScene onLand={startTransition} transitioning={transitioning} />
 }
 
 export default function App() {

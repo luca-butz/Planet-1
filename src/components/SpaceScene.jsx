@@ -193,6 +193,91 @@ const AtmosphereMaterial = {
   `
 }
 
+function Spaceship({ transitioning }) {
+  const group = useRef()
+  const { camera } = useThree()
+  
+  useFrame((state, delta) => {
+    if (group.current) {
+        const t = state.clock.getElapsedTime()
+        // Stick to camera
+        group.current.position.copy(camera.position)
+        group.current.quaternion.copy(camera.quaternion)
+        
+        // Offset
+        group.current.translateZ(-3) // In front
+        group.current.translateY(-1.2) // Down
+        
+        // Idle Animation (floating)
+        group.current.position.y += Math.sin(t * 2) * 0.05
+        group.current.rotation.z += Math.cos(t * 1.5) * 0.02
+        
+        if (transitioning) {
+            // Shake effect
+            group.current.position.x += (Math.random() - 0.5) * 0.15
+            group.current.position.y += (Math.random() - 0.5) * 0.15
+            
+            // Forward engine stretch visually?
+        }
+    }
+  })
+
+  return (
+    <group ref={group}>
+        {/* Main Body */}
+        <mesh rotation={[0, Math.PI, 0]}> {/* Pointing forward relative to camera looking -Z */}
+             {/* Note: Camera looks down -Z. Spaceship should point -Z. */}
+             {/* If we strictly translateZ(-3), we are at z=-3 (relative). */}
+             {/* Let's build a cool shape. */}
+        </mesh>
+        
+        <group rotation={[0, Math.PI, 0]}>
+             {/* Fuselage */}
+             <mesh position={[0, 0, 0.5]}>
+                <boxGeometry args={[1, 0.5, 3]} />
+                <meshStandardMaterial color="#222" roughness={0.4} metalness={0.8} />
+             </mesh>
+             
+             {/* Wings */}
+             <mesh position={[1.5, -0.2, 1]}>
+                <boxGeometry args={[2, 0.1, 1.5]} />
+                <meshStandardMaterial color="#333" roughness={0.4} metalness={0.7} />
+             </mesh>
+             <mesh position={[-1.5, -0.2, 1]}>
+                <boxGeometry args={[2, 0.1, 1.5]} />
+                <meshStandardMaterial color="#333" roughness={0.4} metalness={0.7} />
+             </mesh>
+
+             {/* Engines */}
+             <mesh position={[0.8, 0, 2]}>
+                <cylinderGeometry args={[0.3, 0.4, 1, 16]} rotation={[Math.PI/2, 0, 0]} />
+                <meshStandardMaterial color="#111" />
+             </mesh>
+             <mesh position={[-0.8, 0, 2]}>
+                <cylinderGeometry args={[0.3, 0.4, 1, 16]} rotation={[Math.PI/2, 0, 0]} />
+                <meshStandardMaterial color="#111" />
+             </mesh>
+
+             {/* Engine Glow */}
+            <mesh position={[0.8, 0, 2.6]}>
+                <circleGeometry args={[0.3, 32]} />
+                <meshBasicMaterial color={transitioning ? "#ffaa00" : "#00ddff"} transparent opacity={0.8} />
+             </mesh>
+             <mesh position={[-0.8, 0, 2.6]}>
+                <circleGeometry args={[0.3, 32]} />
+                <meshBasicMaterial color={transitioning ? "#ffaa00" : "#00ddff"} transparent opacity={0.8} />
+             </mesh>
+
+             {/* Cockpit Window */}
+             <mesh position={[0, 0.4, -0.5]}>
+                 <boxGeometry args={[0.8, 0.4, 1]} />
+                 <meshStandardMaterial color="#001133" roughness={0.1} metalness={0.9} />
+             </mesh>
+        </group>
+    </group>
+  )
+}
+
 function Planet({ onLand }) {
   const meshRef = useRef()
   const atmosphereRef = useRef()
@@ -262,7 +347,7 @@ function Planet({ onLand }) {
   )
 }
 
-export default function SpaceScene({ onLand }) {
+export default function SpaceScene({ onLand, transitioning }) {
   const { camera } = useThree()
   
   useEffect(() => {
@@ -273,7 +358,13 @@ export default function SpaceScene({ onLand }) {
 
   return (
     <>
-      <OrbitControls enableZoom={true} minDistance={5} maxDistance={20} enablePan={false} />
+      <OrbitControls 
+          enableZoom={!transitioning} 
+          enabled={!transitioning}
+          minDistance={5} 
+          maxDistance={20} 
+          enablePan={false} 
+      />
       
       {/* Dynamic Lighting for Space */}
       <ambientLight intensity={0.1} />
@@ -286,6 +377,8 @@ export default function SpaceScene({ onLand }) {
 
       {/* Backlight used to highlight edges if shader doesn't catch it enough */}
       <spotLight position={[0, 0, -10]} angle={1} penumbra={1} intensity={5} color="#5500ff" />
+
+      <Spaceship transitioning={transitioning} />
 
       <Planet onLand={onLand} />
     </>

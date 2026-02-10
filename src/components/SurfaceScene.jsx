@@ -20,17 +20,129 @@ function getTerrainHeight(x, z) {
     return elevation;
 }
 
+function FlashlightModel({ isOn }) {
+    const groupRef = useRef()
+    const { camera } = useThree()
+    
+    useFrame((state) => {
+        if (!groupRef.current) return;
+        
+        // Sync with camera
+        groupRef.current.position.copy(camera.position)
+        groupRef.current.quaternion.copy(camera.quaternion)
+        
+        // Offset for "Right Hand" - Positioned lower and more to the right to clear view
+        groupRef.current.translateX(0.5) 
+        groupRef.current.translateY(-0.5)
+        groupRef.current.translateZ(-1.0) 
+        
+        // Slight tilt inward to point at crosshair distance
+        groupRef.current.rotateY(0.05)
+        groupRef.current.rotateX(0.05)
+    })
+
+    // Create a target for the spotlight to look at (always locally in front)
+    const targetRef = useRef()
+    const lightRef = useRef()
+    
+    useFrame(() => {
+        if (lightRef.current && targetRef.current) {
+            lightRef.current.target = targetRef.current
+        }
+    })
+
+    return (
+        <group ref={groupRef}>
+             {/* Flashlight Body */}
+            <mesh rotation={[Math.PI/2, 0, 0]} position={[0, 0, 0.1]}>
+                <cylinderGeometry args={[0.03, 0.04, 0.2, 16]} />
+                <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.3} />
+            </mesh>
+            
+            {/* The Bulb Lens (Emissive) */}
+             <mesh position={[0, 0, -0.01]} rotation={[Math.PI/2, 0, 0]}>
+                <circleGeometry args={[0.03, 16]} />
+                <meshBasicMaterial color={isOn ? "#eeffff" : "#000000"} />
+            </mesh>
+
+            <object3D position={[0, 0, -10]} ref={targetRef} />
+
+            {/* The Light Source */}
+            {isOn && (
+                <>
+                    <spotLight 
+                        ref={lightRef}
+                        position={[0, 0, 0]} 
+                        intensity={50}
+                        angle={0.5}
+                        attenuation={5}
+                        anglePower={5}
+                        penumbra={0.2} 
+                        distance={60} 
+                        color="#ddeeFF" 
+                        castShadow
+                    />
+                    
+                    {/* Volumetric Beam - Adjusted to start further out to avoid clipping face */}
+                    <mesh position={[0, 0, -10]} rotation={[Math.PI/2, 0, 0]}>
+                         {/* Top radius is big (far end), bottom radius is small (near end) */}
+                        <cylinderGeometry args={[2.0, 0.1, 20.0, 32, 1, true]} />
+                        <meshBasicMaterial 
+                            color="#aaddff" 
+                            transparent 
+                            opacity={0.05} 
+                            side={THREE.DoubleSide} 
+                            depthWrite={false} 
+                            blending={THREE.AdditiveBlending} 
+                        />
+                    </mesh>
+
+                    {/* Inner intense core beam */}
+                    <mesh position={[0, 0, -8]} rotation={[Math.PI/2, 0, 0]}>
+                        <cylinderGeometry args={[0.5, 0.05, 16.0, 16, 1, true]} />
+                        <meshBasicMaterial 
+                            color="#ffffff" 
+                            transparent 
+                            opacity={0.08} 
+                            side={THREE.DoubleSide} 
+                            depthWrite={false} 
+                            blending={THREE.AdditiveBlending} 
+                        />
+                    </mesh>
+                </>
+            )}
+        </group>
+    )
+}
+
 function Player() {
   const { camera } = useThree()
-  const [move, setMove] = useState({ forward: false, backward: false, left: false, right: false })
+  const [move, setMove] = useState({ forward: false, backward: false, left: false, right: false, jump: false })
+  const [landed, setLanded] = useState(false)
+  const [flashlightOn, setFlashlightOn] = useState(false)
+  
+  const velocityY = useRef(0)
   
   useEffect(() => {
+    // Start high up in the air for landing sequence
+    camera.position.set(0, 200, 0)
+    // Look at horizon initially
+    const target = new THREE.Vector3(0, 200, -100)
+    camera.lookAt(target)
+    
+    // Key handlers
     const handleKeyDown = (e) => {
+      // Toggle for single press keys
+      if (e.code === 'KeyT') {
+          setFlashlightOn(prev => !prev)
+      }
+
       switch(e.code) {
         case 'KeyW': setMove(m => ({ ...m, forward: true })); break;
         case 'KeyS': setMove(m => ({ ...m, backward: true })); break;
         case 'KeyA': setMove(m => ({ ...m, left: true })); break;
-        case 'KeyD': setMove(m => ({ ...m, right: true })); break; 
+        case 'KeyD': setMove(m => ({ ...m, right: true })); break;
+        case 'Space': setMove(m => ({ ...m, jump: true })); break;
       }
     }
     const handleKeyUp = (e) => {
@@ -38,7 +150,8 @@ function Player() {
             case 'KeyW': setMove(m => ({ ...m, forward: false })); break;
             case 'KeyS': setMove(m => ({ ...m, backward: false })); break;
             case 'KeyA': setMove(m => ({ ...m, left: false })); break;
-            case 'KeyD': setMove(m => ({ ...m, right: false })); break; 
+            case 'KeyD': setMove(m => ({ ...m, right: false })); break;
+            case 'Space': setMove(m => ({ ...m, jump: false })); break;
         }
     }
     document.addEventListener('keydown', handleKeyDown)
@@ -47,30 +160,84 @@ function Player() {
         document.removeEventListener('keydown', handleKeyDown)
         document.removeEventListener('keyup', handleKeyUp)
     }
-  }, [])
+  }, [camera])
   
   useFrame((state, delta) => {
-    const speed = 15.0 * delta 
-    const direction = new THREE.Vector3()
-    const frontVector = new THREE.Vector3(0, 0, Number(move.backward) - Number(move.forward))
-    const sideVector = new THREE.Vector3(Number(move.left) - Number(move.right), 0, 0)
-    
-    direction
-      .subVectors(frontVector, sideVector)
-      .normalize()
-      .multiplyScalar(speed)
-      .applyEuler(camera.rotation)
-    
-    camera.position.x += direction.x
-    camera.position.z += direction.z
-    
-    // Terrain collision
+
+    // Terrain height at current X, Z
     const groundHeight = getTerrainHeight(camera.position.x, camera.position.z)
-    // Smooth adjustment or hard snap? Hard snap is better for walking.
-    camera.position.y = groundHeight + 2.5 
+    const eyeHeight = 2.5
+
+    if (!landed) {
+        // Landing descent logic (Free fall with terminal velocity simulation)
+        // Move down fast but slow down slightly near ground? No, just drop.
+        camera.position.y -= delta * 60.0 // Fast descent
+        
+        // Safety check to ensure we don't clip through ground in one frame
+        if (camera.position.y <= groundHeight + eyeHeight) {
+            camera.position.y = groundHeight + eyeHeight
+            setLanded(true)
+            velocityY.current = 0
+        }
+        return // Disable player control during landing
+    }
+
+    const speed = 15.0 * delta // Movement speed
+
+    // Calculate movement direction relative to camera looking direction, but flatten Y
+    const isMoving = move.forward || move.backward || move.left || move.right;
+    
+    if (isMoving) {
+        // Get valid forward and right vectors from camera
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        forward.y = 0; // Flatten
+        forward.normalize();
+        
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        right.y = 0; // Flatten
+        right.normalize();
+        
+        const moveDir = new THREE.Vector3();
+        if (move.forward) moveDir.add(forward);
+        if (move.backward) moveDir.sub(forward);
+        if (move.right) moveDir.add(right);
+        if (move.left) moveDir.sub(right);
+        
+        // Apply movement
+        if (moveDir.lengthSq() > 0) {
+            moveDir.normalize().multiplyScalar(speed);
+            camera.position.x += moveDir.x;
+            camera.position.z += moveDir.z;
+        }
+    }
+
+    // Physics (Gravity & Jump)
+    // Apply gravity
+    velocityY.current -= 60.0 * delta; 
+    
+    // Apply vertical velocity
+    camera.position.y += velocityY.current * delta;
+    
+    // Ground collision
+    // Recalc ground height at new pos
+    const newGroundHeight = getTerrainHeight(camera.position.x, camera.position.z);
+    const floor = newGroundHeight + eyeHeight;
+    
+    if (camera.position.y < floor) {
+        // Hit ground
+        camera.position.y = floor;
+        velocityY.current = 0;
+        
+        // Jump only if on ground
+        if (move.jump) {
+            velocityY.current = 20.0; // Jump force
+        }
+    }
   })
   
-  return null
+  return (
+      <FlashlightModel isOn={flashlightOn} />
+  )
 }
 
 function CreepyDoll({ position }) {
@@ -331,13 +498,84 @@ function AshParticles() {
     )
 }
 
+function DeadTrees() {
+    // Generates dead trees
+    const trees = useMemo(() => {
+        const temp = []
+        for(let i=0; i<100; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 40 + Math.random() * 250;
+            const x = Math.cos(angle) * dist;
+            const z = Math.sin(angle) * dist;
+            
+            const y = getTerrainHeight(x, z);
+            const height = 4 + Math.random() * 6;
+            const rotY = Math.random() * Math.PI;
+            const lean = (Math.random() - 0.5) * 0.3;
+            
+            temp.push({ position: [x, y + height/2 - 0.5, z], height, rotation: [lean, rotY, lean] })
+        }
+        return temp;
+    }, [])
+
+    return (
+        <group>
+            {trees.map((t, i) => (
+                <group key={i} position={t.position} rotation={t.rotation}>
+                    {/* Trunk */}
+                    <mesh>
+                         <cylinderGeometry args={[0.1, 0.4, t.height, 6]} />
+                         <meshStandardMaterial color="#111" roughness={1} />
+                    </mesh>
+                    {/* Bare branches - simple rotated cylinders */}
+                    <mesh position={[0, t.height * 0.2, 0]} rotation={[0.5, 0, 1]}>
+                         <cylinderGeometry args={[0.05, 0.1, 2, 4]} />
+                         <meshStandardMaterial color="#111" roughness={1} />
+                    </mesh>
+                    <mesh position={[0, t.height * 0.3, 0]} rotation={[-0.5, 2, -1]}>
+                         <cylinderGeometry args={[0.05, 0.1, 1.5, 4]} />
+                         <meshStandardMaterial color="#111" roughness={1} />
+                    </mesh>
+                </group>
+            ))}
+        </group>
+    )
+}
+
+function Rubble() {
+    // Scattered small rocks logic...
+    const stones = useMemo(() => {
+        const temp = [];
+        for(let i=0; i<500; i++) {
+            const x = (Math.random() - 0.5) * 500;
+            const z = (Math.random() - 0.5) * 500;
+            if (Math.abs(x) < 10 && Math.abs(z) < 10) continue; // Clear spawn
+
+            const y = getTerrainHeight(x, z);
+            const scale = Math.random() * 0.5 + 0.1;
+            temp.push({ position: [x, y, z], scale, rotation: [Math.random()*3, Math.random()*3, Math.random()*3] });
+        }
+        return temp;
+    }, []);
+
+    return (
+        <Instances range={stones.length}>
+            <dodecahedronGeometry args={[0.5, 0]} />
+            <meshStandardMaterial color="#333" roughness={0.8} />
+            {stones.map((s, i) => (
+                <Instance key={i} position={s.position} scale={s.scale} rotation={s.rotation} />
+            ))}
+        </Instances>
+    )
+}
+
 export default function SurfaceScene() {
   const { scene } = useThree()
   
   useEffect(() => {
     // Dusty brown/grey fog
-    const fogColor = new THREE.Color('#15100e');
-    scene.fog = new THREE.FogExp2(fogColor, 0.030);
+    const fogColor = new THREE.Color('#050505'); // DARKER for flashlight usage
+    scene.fog = new THREE.FogExp2(fogColor, 0.040); // Denser fog
     scene.background = fogColor;
   }, [scene])
 
@@ -346,15 +584,17 @@ export default function SurfaceScene() {
       <PointerLockControls selector="#root" />
       <Player />
       
-      {/* Dim, diffuse lighting - "Nuclear Winter" sun */}
-      <ambientLight intensity={0.1} color="#443322" />
-      <directionalLight position={[50, 100, 20]} intensity={1.0} color="#ffaa88" castShadow />
+      {/* Dim, diffuse lighting - "Nuclear Winter" sun - DARKER */}
+      <ambientLight intensity={0.02} color="#222" /> 
+      <directionalLight position={[50, 100, 20]} intensity={0.2} color="#334455" />
       
       {/* Some ominous glows */}
       <pointLight position={[-30, 10, -30]} intensity={2} distance={50} color="#55ff00" decay={2} /> 
       
       <WastelandGround />
       <TwistedRuins />
+      <DeadTrees />
+      <Rubble />
       
       {/* The Horror Elements */}
       <Graveyard />
@@ -363,7 +603,7 @@ export default function SurfaceScene() {
       <AshParticles />
       
       {/* Oppressive low clouds */}
-      <Cloud opacity={0.6} speed={0.2} width={200} depth={20} segments={20} position={[0, 40, 0]} color="#1a1512" />
+      <Cloud opacity={0.3} speed={0.2} width={200} depth={20} segments={20} position={[0, 40, 0]} color="#111" />
     </>
   )
 }
