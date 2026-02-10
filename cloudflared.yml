@@ -1,0 +1,7 @@
+tunnel: fce1267f-10a1-436a-9e30-cc5bc94d991c
+credentials-file: C:\Users\anton\.cloudflared\fce1267f-10a1-436a-9e30-cc5bc94d991c.json
+
+ingress:
+  - hostname: luca.antons.app
+    service: http://localhost:5173
+  - service: http_status:404
