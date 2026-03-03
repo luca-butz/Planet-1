@@ -50,7 +50,7 @@ export default function App() {
               RETURN TO ORBIT
             </button>
             <div className="instructions">
-              CLICK TO EXPLORE • WASD TO WALK
+              CLICK TO EXPLORE • WASD TO WALK • T FLASHLIGHT
             </div>
           </div>
         )}

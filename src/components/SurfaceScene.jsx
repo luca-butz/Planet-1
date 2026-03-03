@@ -24,94 +24,172 @@ function FlashlightModel({ isOn }) {
     const groupRef = useRef()
     const { camera } = useThree()
     
-    useFrame((state) => {
-        if (!groupRef.current) return;
-        
-        // Sync with camera
-        groupRef.current.position.copy(camera.position)
-        groupRef.current.quaternion.copy(camera.quaternion)
-        
-        // Offset for "Right Hand" - Positioned lower and more to the right to clear view
-        groupRef.current.translateX(0.5) 
-        groupRef.current.translateY(-0.5)
-        groupRef.current.translateZ(-1.0) 
-        
-        // Slight tilt inward to point at crosshair distance
-        groupRef.current.rotateY(0.05)
-        groupRef.current.rotateX(0.05)
-    })
-
-    // Create a target for the spotlight to look at (always locally in front)
+    // Separate ref for the light so it follows camera directly
+    const lightGroupRef = useRef()
     const targetRef = useRef()
     const lightRef = useRef()
     
     useFrame(() => {
+        if (!groupRef.current) return;
+        
+        // === Flashlight 3D model position ===
+        // At FOV 45, z=-0.6: visible half-height = tan(22.5)*0.6 = 0.249
+        // So y=-0.16 and x=0.28 are safely within the frustum
+        groupRef.current.position.copy(camera.position)
+        groupRef.current.quaternion.copy(camera.quaternion)
+        
+        groupRef.current.translateX(0.28)    // right side
+        groupRef.current.translateY(-0.16)   // bottom area (within 0.249 limit)
+        groupRef.current.translateZ(-0.6)    // far enough for wide frustum
+        
+        // Tilt the flashlight slightly forward
+        groupRef.current.rotateX(0.1)
+        groupRef.current.rotateY(0.05)
+        
+        // === Light source follows camera direction exactly ===
+        if (lightGroupRef.current) {
+            lightGroupRef.current.position.copy(camera.position)
+            lightGroupRef.current.quaternion.copy(camera.quaternion)
+            lightGroupRef.current.translateZ(-0.5)
+        }
+        
+        // Update spotlight target - far ahead in camera look direction
         if (lightRef.current && targetRef.current) {
+            targetRef.current.position.copy(camera.position)
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+            targetRef.current.position.addScaledVector(forward, 60)
             lightRef.current.target = targetRef.current
         }
     })
 
     return (
-        <group ref={groupRef}>
-             {/* Flashlight Body */}
-            <mesh rotation={[Math.PI/2, 0, 0]} position={[0, 0, 0.1]}>
-                <cylinderGeometry args={[0.03, 0.04, 0.2, 16]} />
-                <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.3} />
-            </mesh>
+        <>
+            {/* === FLASHLIGHT 3D MODEL (visible in viewport) === */}
+            <group ref={groupRef} scale={1.5}>
+                {/* Main body tube */}
+                <mesh rotation={[Math.PI/2, 0, 0]} position={[0, 0, 0.06]}>
+                    <cylinderGeometry args={[0.018, 0.024, 0.18, 12]} />
+                    <meshStandardMaterial color="#222222" metalness={0.95} roughness={0.2} />
+                </mesh>
+                
+                {/* Grip ridges */}
+                <mesh rotation={[Math.PI/2, 0, 0]} position={[0, 0, 0.09]}>
+                    <cylinderGeometry args={[0.026, 0.026, 0.08, 6]} />
+                    <meshStandardMaterial color="#111111" metalness={0.3} roughness={0.95} />
+                </mesh>
+                
+                {/* Head / bezel */}
+                <mesh rotation={[Math.PI/2, 0, 0]} position={[0, 0, -0.03]}>
+                    <cylinderGeometry args={[0.032, 0.022, 0.05, 12]} />
+                    <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.15} />
+                </mesh>
+                
+                {/* Chrome bezel ring */}
+                <mesh rotation={[Math.PI/2, 0, 0]} position={[0, 0, -0.055]}>
+                    <cylinderGeometry args={[0.034, 0.034, 0.004, 16]} />
+                    <meshStandardMaterial color="#555555" metalness={1.0} roughness={0.1} />
+                </mesh>
+                
+                {/* Lens */}
+                <mesh position={[0, 0, -0.057]}>
+                    <circleGeometry args={[0.03, 20]} />
+                    <meshBasicMaterial color={isOn ? "#ccddff" : "#0a0a0a"} />
+                </mesh>
+                
+                {/* Glow ring when on */}
+                {isOn && (
+                    <mesh position={[0, 0, -0.056]}>
+                        <ringGeometry args={[0.025, 0.033, 20]} />
+                        <meshBasicMaterial color="#88aadd" transparent opacity={0.5} />
+                    </mesh>
+                )}
+                
+                {/* Button */}
+                <mesh position={[0, 0.022, 0.04]}>
+                    <sphereGeometry args={[0.006, 6, 6]} />
+                    <meshStandardMaterial color="#444" metalness={0.5} roughness={0.5} />
+                </mesh>
+                
+                {/* End cap */}
+                <mesh rotation={[Math.PI/2, 0, 0]} position={[0, 0, 0.16]}>
+                    <cylinderGeometry args={[0.02, 0.015, 0.015, 12]} />
+                    <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.2} />
+                </mesh>
+                
+                {/* Visible soft light cone emanating from lens */}
+                {isOn && (
+                    <mesh position={[0, 0, -0.2]} rotation={[Math.PI/2, 0, 0]}>
+                        <coneGeometry args={[0.12, 0.5, 32, 8, true]} />
+                        <shaderMaterial
+                            transparent
+                            depthWrite={false}
+                            blending={THREE.AdditiveBlending}
+                            side={THREE.DoubleSide}
+                            vertexShader={`
+                                varying vec3 vPos;
+                                varying vec2 vUv;
+                                void main() {
+                                    vPos = position;
+                                    vUv = uv;
+                                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                                }
+                            `}
+                            fragmentShader={`
+                                varying vec3 vPos;
+                                varying vec2 vUv;
+                                void main() {
+                                    // Distance from center axis (radial)
+                                    float r = length(vPos.xz);
+                                    // How far along the cone (0 = tip/source, 1 = wide end)
+                                    float t = (vPos.y + 0.25) / 0.5;
+                                    t = clamp(t, 0.0, 1.0);
+                                    
+                                    // Max radius at this height
+                                    float maxR = mix(0.0, 0.12, t);
+                                    // Normalized radial distance (0=center, 1=edge)
+                                    float nr = maxR > 0.0 ? r / maxR : 1.0;
+                                    
+                                    // Soft radial falloff - bright center, fades to edge
+                                    float radial = 1.0 - smoothstep(0.0, 1.0, nr * nr);
+                                    
+                                    // Fade along length - bright near source, fading out
+                                    float lengthFade = 1.0 - smoothstep(0.0, 1.0, t);
+                                    lengthFade = pow(lengthFade, 2.0);
+                                    
+                                    float alpha = radial * lengthFade * 0.12;
+                                    
+                                    vec3 col = mix(vec3(0.85, 0.92, 1.0), vec3(0.6, 0.75, 0.95), t);
+                                    gl_FragColor = vec4(col, alpha);
+                                }
+                            `}
+                        />
+                    </mesh>
+                )}
+            </group>
             
-            {/* The Bulb Lens (Emissive) */}
-             <mesh position={[0, 0, -0.01]} rotation={[Math.PI/2, 0, 0]}>
-                <circleGeometry args={[0.03, 16]} />
-                <meshBasicMaterial color={isOn ? "#eeffff" : "#000000"} />
-            </mesh>
-
-            <object3D position={[0, 0, -10]} ref={targetRef} />
-
-            {/* The Light Source */}
+            {/* === REAL SPOTLIGHT - illuminates surfaces realistically === */}
             {isOn && (
                 <>
-                    <spotLight 
-                        ref={lightRef}
-                        position={[0, 0, 0]} 
-                        intensity={50}
-                        angle={0.5}
-                        attenuation={5}
-                        anglePower={5}
-                        penumbra={0.2} 
-                        distance={60} 
-                        color="#ddeeFF" 
-                        castShadow
-                    />
-                    
-                    {/* Volumetric Beam - Adjusted to start further out to avoid clipping face */}
-                    <mesh position={[0, 0, -10]} rotation={[Math.PI/2, 0, 0]}>
-                         {/* Top radius is big (far end), bottom radius is small (near end) */}
-                        <cylinderGeometry args={[2.0, 0.1, 20.0, 32, 1, true]} />
-                        <meshBasicMaterial 
-                            color="#aaddff" 
-                            transparent 
-                            opacity={0.05} 
-                            side={THREE.DoubleSide} 
-                            depthWrite={false} 
-                            blending={THREE.AdditiveBlending} 
+                    <group ref={lightGroupRef}>
+                        <spotLight 
+                            ref={lightRef}
+                            position={[0, 0, 0]} 
+                            intensity={120}
+                            angle={0.55}
+                            penumbra={0.85} 
+                            distance={65} 
+                            color="#ddeaf4" 
+                            castShadow
+                            decay={1.5}
+                            shadow-mapSize-width={1024}
+                            shadow-mapSize-height={1024}
+                            shadow-bias={-0.002}
                         />
-                    </mesh>
-
-                    {/* Inner intense core beam */}
-                    <mesh position={[0, 0, -8]} rotation={[Math.PI/2, 0, 0]}>
-                        <cylinderGeometry args={[0.5, 0.05, 16.0, 16, 1, true]} />
-                        <meshBasicMaterial 
-                            color="#ffffff" 
-                            transparent 
-                            opacity={0.08} 
-                            side={THREE.DoubleSide} 
-                            depthWrite={false} 
-                            blending={THREE.AdditiveBlending} 
-                        />
-                    </mesh>
+                    </group>
+                    <object3D ref={targetRef} />
                 </>
             )}
-        </group>
+        </>
     )
 }
 
@@ -415,53 +493,62 @@ function WastelandGround() {
         return geo;
     }, []);
 
-    const shaderMaterial = useMemo(() => {
-        return new THREE.ShaderMaterial({
-            uniforms: {
-                uColorA: { value: new THREE.Color('#050505') }, // Black Charred Soil
-                uColorB: { value: new THREE.Color('#1a100a') }, // Dark Brown
-                uColorC: { value: new THREE.Color('#203020') }, // Faint Toxic Green
-            },
-            vertexShader: `
-                varying vec2 vUv;
+    const groundMaterial = useMemo(() => {
+        const mat = new THREE.MeshStandardMaterial({
+            color: '#111111',
+            roughness: 0.95,
+            metalness: 0.0,
+        })
+        
+        mat.onBeforeCompile = (shader) => {
+            shader.uniforms.uColorA = { value: new THREE.Color('#050505') }
+            shader.uniforms.uColorB = { value: new THREE.Color('#1a100a') }
+            shader.uniforms.uColorC = { value: new THREE.Color('#203020') }
+            
+            // Add varyings to vertex shader
+            shader.vertexShader = shader.vertexShader.replace(
+                '#include <common>',
+                `#include <common>
                 varying float vElevation;
-                void main() {
-                    vUv = uv;
-                    vElevation = position.y;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
+                varying vec2 vUv2;`
+            )
+            shader.vertexShader = shader.vertexShader.replace(
+                '#include <begin_vertex>',
+                `#include <begin_vertex>
+                vElevation = position.y;
+                vUv2 = uv;`
+            )
+            
+            // Override the color in fragment shader
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <common>',
+                `#include <common>
                 uniform vec3 uColorA;
                 uniform vec3 uColorB;
                 uniform vec3 uColorC;
                 varying float vElevation;
-                varying vec2 vUv;
-
-                // Simple noise function for texture
-                float rand(vec2 co){
-                    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
-                }
-
-                void main() {
-                    // Grit noise
-                    float grit = rand(vUv * 500.0) * 0.15;
-                    
-                    // Mix based on height - tops are charred black, mid is brown
-                    vec3 col = mix(uColorA, uColorB, smoothstep(-5.0, 5.0, vElevation + grit * 10.0));
-                    
-                    // Deep areas are toxic
-                    float toxic = smoothstep(-5.0, -8.0, vElevation);
-                    col = mix(col, uColorC, toxic * 0.4);
-
-                    gl_FragColor = vec4(col, 1.0);
-                }
-            `
-        })
+                varying vec2 vUv2;
+                
+                float rand2(vec2 co){
+                    return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758.5453);
+                }`
+            )
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <color_fragment>',
+                `#include <color_fragment>
+                float grit = rand2(vUv2 * 500.0) * 0.15;
+                vec3 groundCol = mix(uColorA, uColorB, smoothstep(-5.0, 5.0, vElevation + grit * 10.0));
+                float toxic = smoothstep(-5.0, -8.0, vElevation);
+                groundCol = mix(groundCol, uColorC, toxic * 0.4);
+                diffuseColor.rgb = groundCol;`
+            )
+        }
+        
+        return mat
     }, [])
 
     return (
-        <mesh geometry={geometry} material={shaderMaterial} receiveShadow />
+        <mesh geometry={geometry} material={groundMaterial} receiveShadow />
     )
 }
 
