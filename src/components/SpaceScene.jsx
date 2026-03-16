@@ -1,6 +1,6 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, Float, Html } from '@react-three/drei'
+import { OrbitControls, Float, Instances, Instance, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
 // GLSL Noise function
@@ -83,9 +83,12 @@ const noiseGLSL = `
 const PlanetMaterial = {
   uniforms: {
     uTime: { value: 0 },
-    uColorSpace: { value: new THREE.Color('#101010') }, // Dark Grey
-    uColorClouds: { value: new THREE.Color('#4a4036') }, // Dusty Brown
-    uColorLava: { value: new THREE.Color('#ff5500') }, // Burning embers (less intense)
+    tWater: { value: null }, // Will be set in component
+    uColorOcean: { value: new THREE.Color('#0a2b0c') }, // Toxic dark radioactive green ocean
+    uColorLand: { value: new THREE.Color('#38281c') }, // Dead reddish-brown land
+    uColorScorched: { value: new THREE.Color('#080504') }, // Charred, darkened terrain
+    uColorClouds: { value: new THREE.Color('#4c4f4a') }, // Sickly grey-ash clouds
+    uColorFires: { value: new THREE.Color('#ff4400') }, // Firestorms
   },
   vertexShader: `
     varying vec2 vUv;
@@ -99,9 +102,10 @@ const PlanetMaterial = {
       vNormal = normalize(normalMatrix * normal);
       vPosition = position;
       
-      // Complex displacement for "swirling" atmosphere shape
-      float noiseVal = cnoise(position * 1.5);
-      float displacement = noiseVal * 0.05;
+      // Slight displacement for atmospheric variations/craters
+      float noiseVal = cnoise(position * 2.0);
+      float craterVal = smoothstep(0.45, 0.5, cnoise(position * 1.2)); // deeper craters
+      float displacement = noiseVal * 0.02 - craterVal * 0.08;
       vec3 newPosition = position + normal * displacement;
 
       gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
@@ -109,9 +113,13 @@ const PlanetMaterial = {
   `,
   fragmentShader: `
     uniform float uTime;
-    uniform vec3 uColorSpace;
+    uniform sampler2D tWater;
+    
+    uniform vec3 uColorOcean;
+    uniform vec3 uColorLand;
+    uniform vec3 uColorScorched;
     uniform vec3 uColorClouds;
-    uniform vec3 uColorLava;
+    uniform vec3 uColorFires;
     
     varying vec2 vUv;
     varying vec3 vNormal;
@@ -120,54 +128,47 @@ const PlanetMaterial = {
     ${noiseGLSL}
 
     void main() {
-      // 1. Base Cloud Noise (Increased frequency for detail)
-      float n = cnoise(vPosition * 4.0 + vec3(uTime * 0.05, uTime * 0.02, 0.0));
-      float n2 = cnoise(vPosition * 12.0 - vec3(0.0, uTime * 0.08, 0.0));
-      float n3 = cnoise(vPosition * 24.0); // Micro details
-      float cloudMix = smoothstep(-0.5, 0.8, n + n2 * 0.5 + n3 * 0.1);
-      
-      // 2. Lava Cracks / Veins (The "Geothermal" aspect)
-      // High frequency noise for cracks
-      float crackNoise = cnoise(vPosition * 20.0 + uTime * 0.01);
-      // Create thin lines by taking absolute value near zero
-      float veins = 1.0 - smoothstep(0.02, 0.08, abs(crackNoise));
-      // Only show veins in "darker" areas or deep below clouds
-      float deepLava = veins * smoothstep(0.2, -0.2, n); 
-      
-      // 3. Compose Colors
-      vec3 base = mix(uColorSpace, uColorClouds, cloudMix);
-      
-      // Add Lava with intense glow
-      vec3 finalColor = mix(base, uColorLava * 4.0, deepLava); // *4.0 for bloom hdr effect
+      // 1. Continental Texture (Actual Earth Map)
+      // Specular map: water is bright, land is dark.
+      float specularMap = texture2D(tWater, vUv).r;
+      float landMask = 1.0 - smoothstep(0.1, 0.4, specularMap);
 
-      // 4. Lighting / Shadows (Terminator)
-      vec3 lightDir = normalize(vec3(10.0, 5.0, 5.0)); // Match sun direction
-      float diff = max(dot(vNormal, lightDir), 0.0);
-      
-      // Custom shadow ramp - even the dark side has faint lava glow, but clouds are pitch black
-      float shadow = smoothstep(-0.2, 0.2, diff);
-      
-      // On the dark side (night), veins should be MORE visible relatively, 
-      // but the clouds should be dark.
-      // Actually, lava glows regardless of sun.
-      
-      vec3 dayColor = finalColor * (0.1 + shadow * 0.9);
-      vec3 nightLava = uColorLava * deepLava * 2.0; // Glows in the dark
-      
-      // Mix based on lighting needed? 
-      // Our lava is already emissive in 'finalColor'. 
-      // Let's just shadow the non-lava parts.
-      
-      vec3 lavaComponent = uColorLava * 3.0 * deepLava;
-      vec3 rockComponent = base;
-      
-      finalColor = rockComponent * (0.05 + shadow * 0.95) + lavaComponent;
+      // 2. Scorched Earth & Craters
+      float scorchedNoise = cnoise(vPosition * 3.0);
+      float scorchedMask = smoothstep(0.1, 0.6, scorchedNoise) * landMask;
 
-      // 5. Fresnel / Rim Light (Cold atmosphere edge)
-      float fresnel = pow(1.0 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 4.0);
-      vec3 rimColor = vec3(0.1, 0.0, 0.2); // Faint violet rim
+      float craterNoise = cnoise(vPosition * 1.2);
+      float craters = smoothstep(0.45, 0.5, craterNoise) * landMask;
+
+      vec3 surfaceColor = mix(uColorOcean, uColorLand, landMask);
+      surfaceColor = mix(surfaceColor, uColorScorched, scorchedMask);
+      surfaceColor = mix(surfaceColor, vec3(0.01, 0.01, 0.01), craters);
+
+      // 3. Radioactive Fires / Burning Cities (only on land)
+      float fireNoise = cnoise(vPosition * 15.0 + uTime * 0.05);
+      float fires = smoothstep(0.5, 0.6, fireNoise) * landMask * (1.0 - scorchedMask * 0.5);
+      float craterFires = smoothstep(0.4, 0.45, craterNoise) * (1.0 - craters) * landMask;
+      fires = max(fires, craterFires * 0.8);
+
+      // 4. Ash Clouds
+      float cloudVal1 = cnoise(vPosition * 2.5 + vec3(uTime * 0.02, 0.0, uTime * 0.01));
+      float cloudVal2 = cnoise(vPosition * 8.0 - vec3(0.0, uTime * 0.04, 0.0));
+      float cloudMix = smoothstep(0.1, 0.9, cloudVal1 + cloudVal2 * 0.4);
+
+      // 5. Lighting / Shadows (Crucial to make the planet a physical dark sphere)
+      vec3 lightPos = normalize(vec3(1.0, 1.0, 1.0)); // Adjust to an angle
+      float diff = max(dot(vNormal, lightPos), 0.0);
+      float shadow = smoothstep(0.0, 0.5, diff); // Hard shadowing
+
+      vec3 fireComponent = uColorFires * fires * 1.5 * (1.0 - shadow * 0.2); // Fires less affected by shadow
+      vec3 base = mix(surfaceColor, uColorClouds, cloudMix * 0.4); // Less opaque clouds
       
-      finalColor += fresnel * rimColor;
+      vec3 finalColor = base * (0.05 + shadow * 1.2) + fireComponent;
+
+      // 6. Fresnel / Rim Light
+      float fresnel = pow(max(1.0 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0), 3.0);
+      vec3 rimColor = vec3(0.6, 0.1, 0.0); // Slight burnt orange glow
+      finalColor += fresnel * rimColor * shadow * 0.4; // Only on sun-lit side
 
       gl_FragColor = vec4(finalColor, 1.0);
     }
@@ -175,7 +176,9 @@ const PlanetMaterial = {
 }
 
 const AtmosphereMaterial = {
-  uniforms: {},
+  uniforms: {
+    uTime: { value: 0 }
+  },
   vertexShader: `
     varying vec3 vNormal;
     void main() {
@@ -186,105 +189,259 @@ const AtmosphereMaterial = {
   fragmentShader: `
     varying vec3 vNormal;
     void main() {
-      // Atmosphere glow
-      float intensity = pow(0.65 - dot(vNormal, vec3(0, 0, 1.0)), 4.0);
-      gl_FragColor = vec4(0.2, 0.1, 0.4, 1.0) * intensity * 2.0; 
+      // Much softer and transparent atmosphere
+      float fresnel = max(1.0 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0);
+      float intensity = pow(fresnel, 4.0) * 0.3; // Only 30% alpha
+      gl_FragColor = vec4(0.4, 0.1, 0.0, intensity); 
     }
   `
 }
 
-function Spaceship({ transitioning }) {
+function Spaceship({ transitionProgress, transitioning }) {
   const group = useRef()
   const { camera } = useThree()
-  
-  useFrame((state, delta) => {
-    if (group.current) {
-        const t = state.clock.getElapsedTime()
-        // Stick to camera
-        group.current.position.copy(camera.position)
-        group.current.quaternion.copy(camera.quaternion)
-        
-        // Offset
-        group.current.translateZ(-3) // In front
-        group.current.translateY(-1.2) // Down
-        
-        // Idle Animation (floating)
-        group.current.position.y += Math.sin(t * 2) * 0.05
-        group.current.rotation.z += Math.cos(t * 1.5) * 0.02
-        
-        if (transitioning) {
-            // Shake effect
-            group.current.position.x += (Math.random() - 0.5) * 0.15
-            group.current.position.y += (Math.random() - 0.5) * 0.15
-            
-            // Forward engine stretch visually?
-        }
+  const startPos = useRef(new THREE.Vector3())
+  const startQuat = useRef(new THREE.Quaternion())
+
+  useEffect(() => {
+    if (transitioning && group.current) {
+      startPos.current.copy(group.current.position)
+      startQuat.current.copy(group.current.quaternion)
+    }
+  }, [transitioning])
+
+  useFrame((state) => {
+    if (!group.current) return
+
+    const t = state.clock.getElapsedTime()
+    const landingBoost = THREE.MathUtils.smoothstep(transitionProgress, 0.0, 1.0)
+
+    if (!transitioning) {
+      group.current.position.copy(camera.position)
+      group.current.quaternion.copy(camera.quaternion)
+      group.current.translateZ(-3.2)
+      group.current.translateY(-1.2)
+      group.current.position.y += Math.sin(t * 2.1) * 0.05
+      group.current.rotation.z += Math.cos(t * 1.5) * 0.02
+    } else {
+      group.current.position.copy(startPos.current)
+      group.current.quaternion.copy(startQuat.current)
+      // Fly forward into the atmosphere (braking maneuver)
+      group.current.translateZ(-landingBoost * 25)
+      
+      // Add wobble and pitch up slightly to simulate aerodynamic braking
+      group.current.rotation.x += landingBoost * 0.2
+      group.current.rotation.z += Math.sin(t * 14) * 0.02 * landingBoost
+      group.current.position.x += Math.sin(t * 18) * 0.05 * landingBoost
+      group.current.position.y += Math.cos(t * 16) * 0.04 * landingBoost
     }
   })
 
+  const engineColor = transitionProgress > 0 ? '#ffb347' : '#00ddff'
+  const trailOpacity = 0.28 + transitionProgress * 0.45
+
   return (
     <group ref={group}>
-        {/* Main Body */}
-        <mesh rotation={[0, Math.PI, 0]}> {/* Pointing forward relative to camera looking -Z */}
-             {/* Note: Camera looks down -Z. Spaceship should point -Z. */}
-             {/* If we strictly translateZ(-3), we are at z=-3 (relative). */}
-             {/* Let's build a cool shape. */}
+      <group rotation={[0, Math.PI, 0]}>
+        <mesh position={[0, 0, 0.35]}>
+          <boxGeometry args={[1.05, 0.55, 3.3]} />
+          <meshStandardMaterial color="#22262f" roughness={0.35} metalness={0.82} />
+        </mesh>
+        <mesh position={[0, 0.28, -0.45]}>
+          <coneGeometry args={[0.55, 1.15, 6]} />
+          <meshStandardMaterial color="#2b313d" roughness={0.28} metalness={0.8} />
+        </mesh>
+        <mesh position={[1.55, -0.2, 0.9]}>
+          <boxGeometry args={[2.2, 0.1, 1.6]} />
+          <meshStandardMaterial color="#353b48" roughness={0.4} metalness={0.72} />
+        </mesh>
+        <mesh position={[-1.55, -0.2, 0.9]}>
+          <boxGeometry args={[2.2, 0.1, 1.6]} />
+          <meshStandardMaterial color="#353b48" roughness={0.4} metalness={0.72} />
+        </mesh>
+        <mesh position={[0.95, 0, 2.15]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.28, 0.42, 1.1, 12]} />
+          <meshStandardMaterial color="#12161d" roughness={0.4} metalness={0.9} />
+        </mesh>
+        <mesh position={[-0.95, 0, 2.15]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.28, 0.42, 1.1, 12]} />
+          <meshStandardMaterial color="#12161d" roughness={0.4} metalness={0.9} />
+        </mesh>
+        {/* Main Engines */}
+        <mesh position={[0.95, 0, 2.8]}>
+          <circleGeometry args={[0.34, 24]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.9} />
+        </mesh>
+        <mesh position={[-0.95, 0, 2.8]}>
+          <circleGeometry args={[0.34, 24]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.9} />
         </mesh>
         
-        <group rotation={[0, Math.PI, 0]}>
-             {/* Fuselage */}
-             <mesh position={[0, 0, 0.5]}>
-                <boxGeometry args={[1, 0.5, 3]} />
-                <meshStandardMaterial color="#222" roughness={0.4} metalness={0.8} />
-             </mesh>
-             
-             {/* Wings */}
-             <mesh position={[1.5, -0.2, 1]}>
-                <boxGeometry args={[2, 0.1, 1.5]} />
-                <meshStandardMaterial color="#333" roughness={0.4} metalness={0.7} />
-             </mesh>
-             <mesh position={[-1.5, -0.2, 1]}>
-                <boxGeometry args={[2, 0.1, 1.5]} />
-                <meshStandardMaterial color="#333" roughness={0.4} metalness={0.7} />
-             </mesh>
-
-             {/* Engines */}
-             <mesh position={[0.8, 0, 2]}>
-                <cylinderGeometry args={[0.3, 0.4, 1, 16]} rotation={[Math.PI/2, 0, 0]} />
-                <meshStandardMaterial color="#111" />
-             </mesh>
-             <mesh position={[-0.8, 0, 2]}>
-                <cylinderGeometry args={[0.3, 0.4, 1, 16]} rotation={[Math.PI/2, 0, 0]} />
-                <meshStandardMaterial color="#111" />
-             </mesh>
-
-             {/* Engine Glow */}
-            <mesh position={[0.8, 0, 2.6]}>
-                <circleGeometry args={[0.3, 32]} />
-                <meshBasicMaterial color={transitioning ? "#ffaa00" : "#00ddff"} transparent opacity={0.8} />
-             </mesh>
-             <mesh position={[-0.8, 0, 2.6]}>
-                <circleGeometry args={[0.3, 32]} />
-                <meshBasicMaterial color={transitioning ? "#ffaa00" : "#00ddff"} transparent opacity={0.8} />
-             </mesh>
-
-             {/* Cockpit Window */}
-             <mesh position={[0, 0.4, -0.5]}>
-                 <boxGeometry args={[0.8, 0.4, 1]} />
-                 <meshStandardMaterial color="#001133" roughness={0.1} metalness={0.9} />
-             </mesh>
-        </group>
+        {/* Engine Trails */}
+        <mesh position={[0.95, 0, 3.8]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.2 + transitionProgress * 0.2, 2.5 + transitionProgress * 2.5, 16]} />
+          <meshBasicMaterial color={engineColor} transparent opacity={trailOpacity} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </mesh>
+        <mesh position={[-0.95, 0, 3.8]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.2 + transitionProgress * 0.2, 2.5 + transitionProgress * 2.5, 16]} />
+          <meshBasicMaterial color={engineColor} transparent opacity={trailOpacity} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </mesh>
+        
+        {/* Inner bright core for trails */}
+        <mesh position={[0.95, 0, 3.2]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.1, 1.2 + transitionProgress * 1.0, 16]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.8} blending={THREE.AdditiveBlending} />
+        </mesh>
+        <mesh position={[-0.95, 0, 3.2]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.1, 1.2 + transitionProgress * 1.0, 16]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.8} blending={THREE.AdditiveBlending} />
+        </mesh>
+        <mesh position={[0, 0.42, -0.52]}>
+          <boxGeometry args={[0.86, 0.42, 1.05]} />
+          <meshStandardMaterial color="#00aaff" transparent opacity={0.3} roughness={0.06} metalness={0.92} side={THREE.DoubleSide} />
+        </mesh>
+        
+        {/* Reentry heat effect */}
+        {transitioning && (
+          <group position={[0, 0, -0.6]} rotation={[-Math.PI / 2, 0, 0]}>
+            {/* Outer red/orange plasma shield */}
+            <mesh position={[0, -0.6, 0]} scale={[1, 1.4, 1]}>
+              <sphereGeometry args={[2.8, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+              <meshBasicMaterial 
+                color="#ff2200" 
+                transparent 
+                opacity={transitionProgress < 0.8 ? transitionProgress * 0.6 : (1.0 - transitionProgress) * 3} 
+                blending={THREE.AdditiveBlending}
+                depthWrite={false}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+            {/* Inner bright yellow-white core */}
+            <mesh position={[0, 0.2, 0]} scale={[1, 1.2, 1]}>
+              <sphereGeometry args={[2.2, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+              <meshBasicMaterial 
+                color="#ffcc00" 
+                transparent 
+                opacity={transitionProgress < 0.8 ? transitionProgress * 0.8 : (1.0 - transitionProgress) * 4} 
+                blending={THREE.AdditiveBlending}
+                depthWrite={false}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+            {/* Front bright hot spot */}
+            <mesh position={[0, 1.5, 0]}>
+              <sphereGeometry args={[1.5, 32, 16]} />
+              <meshBasicMaterial 
+                color="#ffffff" 
+                transparent 
+                opacity={transitionProgress < 0.8 ? transitionProgress * 0.9 : (1.0 - transitionProgress) * 4} 
+                blending={THREE.AdditiveBlending}
+                depthWrite={false}
+              />
+            </mesh>
+            {/* Plasma trail tail */}
+            <mesh position={[0, -2.5, 0]} rotation={[Math.PI, 0, 0]}>
+              <coneGeometry args={[2.9, 10, 16]} />
+              <meshBasicMaterial 
+                color="#ff5500" 
+                transparent 
+                opacity={transitionProgress < 0.8 ? transitionProgress * 0.4 : (1.0 - transitionProgress) * 2} 
+                blending={THREE.AdditiveBlending}
+                depthWrite={false}
+              />
+            </mesh>
+          </group>
+        )}
+      </group>
     </group>
   )
 }
 
-function Planet({ onLand }) {
+function OrbitalDebris() {
+  const debrisConfig = useMemo(() => {
+    const temp = []
+    for (let i = 0; i < 400; i++) {
+        const distance = 110 + Math.random() * 40;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        
+        const x = distance * Math.sin(phi) * Math.cos(theta);
+        const y = distance * Math.sin(phi) * Math.sin(theta) * 0.3; // Flattened orbit ring
+        const z = distance * Math.cos(phi);
+
+        temp.push({
+            position: [x, y, z],
+            rotation: [Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI],
+            scale: 0.2 + Math.random() * 0.8,
+            speed: (Math.random() - 0.5) * 0.02
+        });
+    }
+    return temp;
+  }, [])
+
+  const groupRef = useRef();
+
+  useFrame((state, delta) => {
+      if (groupRef.current) {
+          groupRef.current.rotation.y += delta * 0.015;
+          groupRef.current.rotation.z += delta * 0.005;
+      }
+  })
+
+  return (
+    <group ref={groupRef}>
+      <Instances range={debrisConfig.length}>
+        <dodecahedronGeometry args={[1, 0]} />
+        <meshStandardMaterial color="#222" roughness={0.9} metalness={0.5} />
+        {debrisConfig.map((d, i) => (
+            <Instance key={i} position={d.position} rotation={d.rotation} scale={d.scale} />
+        ))}
+      </Instances>
+    </group>
+  )
+}
+
+function Planet({ onLand, transitioning }) {
   const meshRef = useRef()
   const atmosphereRef = useRef()
   const [hovered, setHover] = useState(false)
-  
-  // Create shader materials
-  const planetMaterial = useMemo(() => new THREE.ShaderMaterial(PlanetMaterial), [])
+  const [earthSpecularMap, setEarthSpecularMap] = useState(null)
+
+  useEffect(() => {
+    // Manually load texture to avoid React Suspense crashing if the URL fails
+    const loader = new THREE.TextureLoader()
+    // Using a reliable CORS-friendly github raw URL
+    loader.load(
+      'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_2048.jpg',
+      (texture) => {
+        setEarthSpecularMap(texture)
+      },
+      undefined,
+      (err) => {
+        console.error('Failed to load earth texture', err)
+        // Set a fallback to avoid shader errors if it fails
+        const canvas = document.createElement('canvas')
+        canvas.width = 2
+        canvas.height = 2
+        setEarthSpecularMap(new THREE.CanvasTexture(canvas))
+      }
+    )
+  }, [])
+
+  const planetMaterial = useMemo(() => {
+    const mat = new THREE.ShaderMaterial(PlanetMaterial)
+    if (earthSpecularMap) {
+      mat.uniforms.tWater.value = earthSpecularMap
+    } else {
+      // Dummy texture during loading to prevent GLSL crash
+      const canvas = document.createElement('canvas')
+      canvas.width = 2
+      canvas.height = 2
+      mat.uniforms.tWater.value = new THREE.CanvasTexture(canvas)
+    }
+    return mat
+  }, [earthSpecularMap])
+
   const atmosMaterial = useMemo(() => new THREE.ShaderMaterial({
       ...AtmosphereMaterial,
       side: THREE.BackSide,
@@ -297,90 +454,194 @@ function Planet({ onLand }) {
     if (meshRef.current) {
         meshRef.current.rotation.y += delta * 0.05
         planetMaterial.uniforms.uTime.value += delta
+        atmosMaterial.uniforms.uTime.value += delta
     }
   })
 
   return (
     <group>
-        <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.2}>
-        {/* Main Planet Mesh - High Resolution */}
-        <mesh 
-            ref={meshRef}
-            onClick={onLand}
-            onPointerOver={() => { document.body.style.cursor = 'pointer'; setHover(true) }}
-            onPointerOut={() => { document.body.style.cursor = 'auto'; setHover(false) }}
+      <Float speed={1.5} rotationIntensity={transitioning ? 0.06 : 0.2} floatIntensity={transitioning ? 0.06 : 0.2}>
+        <mesh
+          ref={meshRef}
+          onClick={() => !transitioning && onLand()}
+          onPointerOver={() => { document.body.style.cursor = 'pointer'; setHover(true) }}
+          onPointerOut={() => { document.body.style.cursor = 'auto'; setHover(false) }}
         >
-            <sphereGeometry args={[2.5, 512, 512]} />
-            <primitive object={planetMaterial} attach="material" />
-        </mesh>
-        
-        {/* Glow / Atmosphere */}
-        <mesh scale={[1.2, 1.2, 1.2]} ref={atmosphereRef}>
-            <sphereGeometry args={[2.5, 64, 64]} />
-            <primitive object={atmosMaterial} attach="material" />
+          <sphereGeometry args={[100, 160, 160]} />
+          <primitive object={planetMaterial} attach="material" />
         </mesh>
 
-        {/* Hints */}
-        {hovered && (
-            <Html position={[0, 0, 0]} center distanceFactor={10} style={{ pointerEvents: 'none' }}>
-            <div style={{ 
-                color: '#ffaa88', 
-                background: 'rgba(0,0,0,0.8)', 
-                padding: '12px 24px', 
-                whiteSpace: 'nowrap', 
-                userSelect: 'none',
-                fontFamily: 'courier new, monospace',
-                textTransform: 'uppercase',
-                letterSpacing: '3px',
-                border: '1px solid #ff4400',
-                boxShadow: '0 0 20px #ff4400',
-                textAlign: 'center',
-                backdropFilter: 'blur(4px)'
-            }}>
-                <div style={{ fontSize: '0.8em', color: '#888' }}>Target Locked</div>
-                <div>Iniciate Landing</div>
-            </div>
-            </Html>
+        <mesh scale={[1.08, 1.08, 1.08]} ref={atmosphereRef}>
+          <sphereGeometry args={[100, 32, 32]} />
+          <primitive object={atmosMaterial} attach="material" />
+        </mesh>
+
+        <OrbitalDebris />
+
+        {hovered && !transitioning && (
+          <group>
+          </group>
         )}
-        </Float>
+      </Float>
     </group>
   )
 }
 
-export default function SpaceScene({ onLand, transitioning }) {
+function ApproachCorridor({ transitionProgress }) {
+  const rings = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => ({
+      z: 7 - index * 1.45,
+      radius: 0.85 + index * 0.18,
+      hue: index % 2 === 0 ? '#59c7ff' : '#ff8d47'
+    })),
+    []
+  )
+
+  if (transitionProgress <= 0) return null
+
+  return (
+    <group>
+      {rings.map((ring, index) => (
+        <mesh
+          key={index}
+          position={[0, Math.sin(index) * 0.22, ring.z]}
+          rotation={[Math.PI / 2, 0, 0]}
+        >
+          <torusGeometry args={[ring.radius, 0.035, 8, 24]} />
+          <meshBasicMaterial color={ring.hue} transparent opacity={Math.max(0, 0.55 - index * 0.06)} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+function FlightControls({ active, onTriggerLanding }) {
   const { camera } = useThree()
-  
+  const keys = useRef({ w: false, s: false, a: false, d: false, q: false, e: false, arrowup: false, arrowdown: false, arrowleft: false, arrowright: false })
+  const speed = useRef(0)
+
   useEffect(() => {
-    // Reset camera position
-    camera.position.set(0, 0, 10)
+    const handleKeyDown = (e) => {
+      const key = e.key.toLowerCase()
+      if (keys.current.hasOwnProperty(key)) keys.current[key] = true
+    }
+    const handleKeyUp = (e) => {
+      const key = e.key.toLowerCase()
+      if (keys.current.hasOwnProperty(key)) keys.current[key] = false
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
+
+  useFrame((state, delta) => {
+    if (!active) return
+
+    if (keys.current.w) speed.current += delta * 15
+    if (keys.current.s) speed.current -= delta * 15
+    
+    speed.current *= 0.98
+    speed.current = Math.max(0, Math.min(30, speed.current))
+
+    let pitch = 0
+    let yaw = 0
+    let roll = 0
+
+    if (keys.current.arrowup) pitch += 1
+    if (keys.current.arrowdown) pitch -= 1
+    if (keys.current.a || keys.current.arrowleft) yaw += 1
+    if (keys.current.d || keys.current.arrowright) yaw -= 1
+    if (keys.current.q) roll += 1
+    if (keys.current.e) roll -= 1
+
+    camera.rotateZ(roll * delta * 1.5)
+    camera.rotateY(-yaw * delta * 1.5)
+    camera.rotateX(pitch * delta * 1.5)
+
+    camera.translateZ(-speed.current * delta)
+
+    // Trigger distance to planet (planet is at 0,0,0) with radius 100 + atmosphere
+    if (camera.position.length() < 130) {
+      onTriggerLanding()
+    }
+  })
+
+  return null
+}
+
+export default function SpaceScene({ onLand, transitioning, onTransitionComplete }) {
+  const { camera } = useThree()
+  const [transitionProgress, setTransitionProgress] = useState(0)
+  const startPositionRef = useRef(new THREE.Vector3(0, 0, 10))
+  const targetPositionRef = useRef(new THREE.Vector3(0, 0.65, 4.35))
+  const lookTargetRef = useRef(new THREE.Vector3())
+  const shipDirRef = useRef(new THREE.Vector3(0, 0, -1))
+  const completionRef = useRef(false)
+
+  useEffect(() => {
+    camera.position.set(0, 0, 400)
     camera.lookAt(0, 0, 0)
+    setTransitionProgress(0)
+    completionRef.current = false
   }, [camera])
+
+  useEffect(() => {
+    if (transitioning) {
+      startPositionRef.current.copy(camera.position)
+      // Camera moves back, up, and to the side for an epic landing shot
+      const dir = camera.position.clone().normalize()
+      shipDirRef.current.copy(camera.getWorldDirection(new THREE.Vector3()))
+      
+      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize()
+      if (right.lengthSq() < 0.1) right.set(1, 0, 0)
+      targetPositionRef.current.copy(camera.position).add(dir.multiplyScalar(15)).add(right.multiplyScalar(15)).setY(camera.position.y + 8)
+      setTransitionProgress(0)
+      completionRef.current = false
+    }
+  }, [transitioning, camera])
+
+  useFrame((state, delta) => {
+    if (!transitioning) return
+
+    setTransitionProgress((prev) => {
+      const progress = Math.min(1, prev + delta / 8.0)
+      const eased = THREE.MathUtils.smootherstep(progress, 0, 1)
+      const wobble = (1 - eased) * 0.06
+
+      camera.position.lerpVectors(startPositionRef.current, targetPositionRef.current, eased)
+      camera.position.x += Math.sin(state.clock.getElapsedTime() * 7.5) * wobble
+      camera.position.y += Math.cos(state.clock.getElapsedTime() * 6.5) * wobble * 0.8
+
+      // Track the ship as it flies forward (approx -20 units along its forward vector)
+      lookTargetRef.current.copy(startPositionRef.current)
+        .add(shipDirRef.current.clone().multiplyScalar(eased * 25))
+        .add(new THREE.Vector3(0, -eased * 2, 0)) // slight dip
+        
+      camera.lookAt(lookTargetRef.current)
+
+      if (progress >= 1 && !completionRef.current) {
+        completionRef.current = true
+        onTransitionComplete()
+      }
+
+      return progress
+    })
+  })
 
   return (
     <>
-      <OrbitControls 
-          enableZoom={!transitioning} 
-          enabled={!transitioning}
-          minDistance={5} 
-          maxDistance={20} 
-          enablePan={false} 
-      />
-      
-      {/* Dynamic Lighting for Space */}
-      <ambientLight intensity={0.1} />
-      
-      {/* Main Light Source (Star) */}
-      <directionalLight position={[10, 5, 5]} intensity={3} color="#ffeebb" />
-      
-      {/* Fill Light (cold space reflection) */}
-      <directionalLight position={[-10, 0, -5]} intensity={0.5} color="#202040" />
+      <FlightControls active={!transitioning} onTriggerLanding={onLand} />
 
-      {/* Backlight used to highlight edges if shader doesn't catch it enough */}
+      <ambientLight intensity={0.1} />
+      <directionalLight position={[10, 5, 5]} intensity={3} color="#ffeebb" />
+      <directionalLight position={[-10, 0, -5]} intensity={0.5} color="#202040" />
       <spotLight position={[0, 0, -10]} angle={1} penumbra={1} intensity={5} color="#5500ff" />
 
-      <Spaceship transitioning={transitioning} />
-
-      <Planet onLand={onLand} />
+      <Spaceship transitionProgress={transitionProgress} transitioning={transitioning} />
+      <Planet onLand={onLand} transitioning={transitioning} />
     </>
   )
 }
