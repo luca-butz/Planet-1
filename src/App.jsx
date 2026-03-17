@@ -22,6 +22,18 @@ import * as THREE from 'three'
 */
 
 const MISSION_TEXTS = {
+  "-2": {
+    title: 'ORBITAL-SCAN LÄUFT...',
+    text: 'Du kehrst nach Jahren von einer Deep-Space-Mission zur Erde zurück. Doch die Sensoren zeigen massive Anomalien. Die Kontinente sind aschegrau, die Ozeane toxisch. Kein Funkkontakt. Steuere das Schiff (W/S für Schub, A/D & Pfeiltasten für Drehung) näher an den Planeten heran, um Scans durchzuführen.',
+    hint: 'Fliege näher an die Erde heran (W-Taste für Schub)',
+    duration: 15000
+  },
+  "-1": {
+    title: 'VERBINDUNG HERGESTELLT',
+    text: 'Scans abgeschlossen. Ein globaler Nuklearkrieg hat die Biosphäre ausgelöscht. Die Oberfläche ist ein ewiger nuklearer Winter. Aber wir empfangen ein schwaches, sich wiederholendes Notsignal aus der nördlichen Hemisphäre! Dringe in die Atmosphäre ein, um am Ursprungsort zu landen.',
+    hint: 'Fliege weiter auf den Planeten zu, um die Landung einzuleiten',
+    duration: 15000
+  },
   0: {
     title: 'KEINE ANTWORT VON DER ERDE...',
     text: 'Du warst Jahre auf einer Deep-Space-Mission. Jetzt bist du zurück. Aber die Erde, die du kanntest, gibt es nicht mehr. Ein globaler Nuklearkrieg hat die Welt in Asche gelegt. Dichte Rauchwolken blockieren die Sonne — ein ewiger nuklearer Winter. Die Oberfläche ist dunkel, kalt, zerstört. Aber die Sensoren erfassen ein schwaches elektromagnetisches Signal in der Nähe. Vielleicht gibt es noch Überlebende in den alten Bunkern...',
@@ -30,8 +42,8 @@ const MISSION_TEXTS = {
   },
   1: {
     title: 'NOTSIGNAL DETEKTIERT',
-    text: 'Analyse abgeschlossen: Das Signal stammt aus einer unterirdischen Einrichtung — ein Bunker, nordöstlich von hier. Die Frequenz entspricht einem alten militärischen Notfallprotokoll. Wer auch immer da unten war, sie haben auf Hilfe gehofft. Folge dem grünen Leitsignal.',
-    hint: 'Folge dem Signal zum Bunker',
+    text: 'Analyse abgeschlossen: Das Signal stammt aus einer unterirdischen Einrichtung — ein Bunker. Es tritt eine massive radioaktive Strahlung aus, die in der Ferne den Himmel giftgrün erleuchtet. Wenn du dieser Strahlungsquelle folgst, solltest du den Eingang finden.',
+    hint: 'Folge dem grünen radioaktiven Leuchten in der Ferne zum Bunker',
     duration: 12000
   },
   2: {
@@ -94,24 +106,25 @@ function SceneManager({ view, setView, missionStage, setMissionStage, dialogVisi
     const finishTransition = () => {
         setTransitioning(false)
         setView('surface')
+        setMissionStage(0)
     }
 
     if (view === 'surface') {
         return <SurfaceScene missionStage={missionStage} setMissionStage={setMissionStage} dialogVisible={dialogVisible} coresCollected={coresCollected} setCoresCollected={setCoresCollected} />
     }
 
-    return <SpaceScene onLand={startTransition} transitioning={transitioning} onTransitionComplete={finishTransition} />
+    return <SpaceScene onLand={startTransition} transitioning={transitioning} onTransitionComplete={finishTransition} missionStage={missionStage} setMissionStage={setMissionStage} />
 }
 
 export default function App() {
   const [view, setView] = useState('space')
-  const [missionStage, setMissionStage] = useState(0)
+  const [missionStage, setMissionStage] = useState(-2)
   const [showMissionText, setShowMissionText] = useState(false)
   const [missionFade, setMissionFade] = useState(false)
   const [timeReversalActive, setTimeReversalActive] = useState(false)
   const [timeReversalPhase, setTimeReversalPhase] = useState(0)
   const [coresCollected, setCoresCollected] = useState([false, false, false, false])
-  const prevStageRef = useRef(0)
+  const prevStageRef = useRef(-2)
 
   // E key to dismiss mission dialog
   const dismissDialog = useCallback(() => {
@@ -153,12 +166,14 @@ export default function App() {
         return () => clearInterval(interval)
       }
       const mission = MISSION_TEXTS[missionStage]
-      const duration = (mission && mission.duration) || 6000
-      setShowMissionText(true)
-      setMissionFade(false)
-      const fadeTimer = setTimeout(() => setMissionFade(true), duration - 1000)
-      const hideTimer = setTimeout(() => setShowMissionText(false), duration)
-      return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer) }
+      if (mission) {
+        const duration = mission.duration || 6000
+        setShowMissionText(true)
+        setMissionFade(false)
+        const fadeTimer = setTimeout(() => setMissionFade(true), duration - 1000)
+        const hideTimer = setTimeout(() => setShowMissionText(false), duration)
+        return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer) }
+      }
     }
   }, [missionStage])
 
@@ -215,6 +230,13 @@ export default function App() {
           </div>
         )}
 
+        {view === 'space' && currentMission && currentMission.hint && missionStage < 0 && (
+          <div className="mission-objective">
+            <div className="mission-label">MISSION</div>
+            <div className="mission-hint">{currentMission.hint}</div>
+          </div>
+        )}
+
         {/* Mission Objective HUD */}
         {view === 'surface' && currentMission && currentMission.hint && missionStage < 11 && (
           <div className="mission-objective">
@@ -238,7 +260,7 @@ export default function App() {
       </div>
 
       {/* Story Dialog Popup */}
-      {showMissionText && currentMission && currentMission.text && missionStage > 0 && missionStage < 11 && (
+      {showMissionText && currentMission && currentMission.text && missionStage < 11 && (
         <div className={`mission-dialog ${missionFade ? 'fade-out' : 'fade-in'}`}>
           <div className="mission-dialog-header">{currentMission.title}</div>
           <div className="mission-dialog-text">{currentMission.text}</div>

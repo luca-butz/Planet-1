@@ -515,7 +515,7 @@ function ApproachCorridor({ transitionProgress }) {
   )
 }
 
-function FlightControls({ active, onTriggerLanding }) {
+function FlightControls({ active, onTriggerLanding, missionStage, setMissionStage }) {
   const { camera } = useThree()
   const keys = useRef({ w: false, s: false, a: false, d: false, q: false, e: false, arrowup: false, arrowdown: false, arrowleft: false, arrowright: false })
   const speed = useRef(0)
@@ -563,8 +563,15 @@ function FlightControls({ active, onTriggerLanding }) {
 
     camera.translateZ(-speed.current * delta)
 
+    const dist = camera.position.length();
+
+    // Trigger signal receive
+    if (missionStage === -2 && dist < 250) {
+      setMissionStage(-1)
+    }
+
     // Trigger distance to planet (planet is at 0,0,0) with radius 100 + atmosphere
-    if (camera.position.length() < 130) {
+    if (dist < 130) {
       onTriggerLanding()
     }
   })
@@ -572,7 +579,7 @@ function FlightControls({ active, onTriggerLanding }) {
   return null
 }
 
-export default function SpaceScene({ onLand, transitioning, onTransitionComplete }) {
+export default function SpaceScene({ onLand, transitioning, onTransitionComplete, missionStage, setMissionStage }) {
   const { camera } = useThree()
   const [transitionProgress, setTransitionProgress] = useState(0)
   const startPositionRef = useRef(new THREE.Vector3(0, 0, 10))
@@ -633,7 +640,7 @@ export default function SpaceScene({ onLand, transitioning, onTransitionComplete
 
   return (
     <>
-      <FlightControls active={!transitioning} onTriggerLanding={onLand} />
+      <FlightControls active={!transitioning} onTriggerLanding={onLand} missionStage={missionStage} setMissionStage={setMissionStage} />
 
       <ambientLight intensity={0.1} />
       <directionalLight position={[10, 5, 5]} intensity={3} color="#ffeebb" />

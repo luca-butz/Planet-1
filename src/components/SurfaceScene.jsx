@@ -7,6 +7,22 @@ import { createNoise2D } from 'simplex-noise'
 // Global noise instance
 const noise2D = createNoise2D();
 
+// Simple collision system
+export const globalColliders = [];
+export function useColliders(items) {
+    useEffect(() => {
+        for (const item of items) {
+            globalColliders.push(item);
+        }
+        return () => {
+            for (const item of items) {
+                const idx = globalColliders.indexOf(item);
+                if (idx > -1) globalColliders.splice(idx, 1);
+            }
+        };
+    }, [items]);
+}
+
 // Bunker configuration - placed further away for longer exploration
 const BUNKER_POS = [70, 0, -60];
 const BUNKER_ENTRANCE = [70, 0, -54];
@@ -281,25 +297,28 @@ function LandedCockpit() {
                 <meshBasicMaterial color="#00ffaa" transparent opacity={0.2} wireframe />
             </mesh>
 
-            {/* Center Main Warning Screen (This replaces the HTML popup!) */}
-            <mesh position={[0, -0.8, -2.45]} rotation={[-0.6, 0, 0]}>
-                <planeGeometry args={[2.6, 1.4]} />
-                <meshBasicMaterial color="#2a0000" />
-            </mesh>
-            <group position={[0, -0.79, -2.43]} rotation={[-0.6, 0, 0]}>
-                <Text position={[0, 0.45, 0]} fontSize={0.12} color="#ff3333" anchorX="center">
-                    !!! SYSTEM-WARNUNG !!!
+            {/* Holographic HUD Screen (Clean & minimal, fully transparent background so the view is clear!) */}
+            <group position={[0, -0.5, -2.5]} rotation={[-0.1, 0, 0]}>
+                {/* Thin outline */}
+                <mesh position={[0, 0, 0]}>
+                    <planeGeometry args={[2.2, 1.0]} />
+                    <meshBasicMaterial color="#ff0000" transparent opacity={0.03} depthWrite={false} blending={THREE.AdditiveBlending} />
+                </mesh>
+                <mesh position={[0, 0, 0]}>
+                    <planeGeometry args={[2.2, 1.0]} />
+                    <meshBasicMaterial color="#ff3333" transparent opacity={0.15} wireframe />
+                </mesh>
+                
+                <Text position={[0, 0.3, 0]} fontSize={0.08} color="#ff3333" anchorX="center" fillOpacity={0.9}>
+                    !!! SYSTEM WARNUNG: NUKLEARER WINTER !!!
                 </Text>
-                <Text position={[0, 0.2, 0]} fontSize={0.06} color="#ff6666" anchorX="center">
-                    Nuklearer Winter / Toxische Atmosphäre
+                <Text position={[0, 0.1, 0]} fontSize={0.05} color="#cccccc" anchorX="center" fillOpacity={0.8}>
+                    Erdoberfläche zerstört. Toxische Werte kritisch.
                 </Text>
-                <Text position={[-1.1, -0.1, 0]} fontSize={0.05} color="#cccccc" anchorX="left" anchorY="top" maxWidth={2.2} lineHeight={1.5}>
-                    ERDE: NICHT REKONSTRUIERBAR. Ein globaler Nuklearkrieg hat die Welt in Asche gelegt. Dichte Rauchwolken blockieren die Sonne. Die Oberfläche ist zerstört.
+                <Text position={[0, -0.1, 0]} fontSize={0.055} color="#00ffaa" anchorX="center" fillOpacity={0.9}>
+                    {"> Strahlungsquelle detektiert. Achte auf das grüne Leuchten! <"}
                 </Text>
-                <Text position={[-1.1, -0.4, 0]} fontSize={0.05} color="#00ffaa" anchorX="left" anchorY="top" maxWidth={2.2} lineHeight={1.5}>
-                    SENSOR-UPDATE: Schwaches Notfall-Signal nordöstlich detektiert.
-                </Text>
-                <Text position={[0, -0.6, 0]} fontSize={0.06} color="#ffffff" anchorX="center">
+                <Text position={[0, -0.35, 0]} fontSize={0.06} color="#ffffff" anchorX="center" fillOpacity={0.9}>
                     [ DRÜCKE E UM AUSZUSTEIGEN ]
                 </Text>
             </group>
@@ -313,27 +332,52 @@ function LandedCockpit() {
                 HAZARD
             </Text>
 
-            {/* Window frames (thin, so you can see out) */}
-            <mesh position={[0, 1.2, -3.5]} rotation={[-0.1, 0, 0]}>
-                <boxGeometry args={[6, 0.2, 0.2]} />
+            {/* --- Cockpit Windows --- */}
+            {/* Top Frame */}
+            <mesh position={[0, 1.4, -3.8]} rotation={[-0.2, 0, 0]}>
+                <boxGeometry args={[6.5, 0.3, 0.3]} />
                 <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.3} />
             </mesh>
-            <mesh position={[-2.8, 0, -3.2]} rotation={[0, 0, -0.15]}>
-                <boxGeometry args={[0.2, 3.5, 0.2]} />
+            
+            {/* Bottom Horizon Frame */}
+            <mesh position={[0, -1.2, -3.0]} rotation={[0.2, 0, 0]}>
+                <boxGeometry args={[6.5, 0.5, 0.4]} />
+                <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.5} />
+            </mesh>
+
+            {/* Left Frame */}
+            <mesh position={[-3.1, 0.1, -3.4]} rotation={[0, 0, -0.15]}>
+                <boxGeometry args={[0.3, 3.2, 0.3]} />
                 <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.3} />
             </mesh>
-            <mesh position={[2.8, 0, -3.2]} rotation={[0, 0, 0.15]}>
-                <boxGeometry args={[0.2, 3.5, 0.2]} />
+
+            {/* Right Frame */}
+            <mesh position={[3.1, 0.1, -3.4]} rotation={[0, 0, 0.15]}>
+                <boxGeometry args={[0.3, 3.2, 0.3]} />
                 <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.3} />
             </mesh>
-            <mesh position={[0, 0, -3.6]}>
-                <boxGeometry args={[0.05, 3, 0.05]} />
+
+            {/* Center Strut (thin) */}
+            <mesh position={[0, 0.1, -3.6]} rotation={[-0.1, 0, 0]}>
+                <boxGeometry args={[0.08, 3.2, 0.15]} />
                 <meshStandardMaterial color="#111" metalness={0.9} roughness={0.3} />
+            </mesh>
+
+            {/* Glass Panels */}
+            {/* Left Window */}
+            <mesh position={[-1.55, 0.1, -3.5]} rotation={[-0.1, 0, 0]}>
+                <planeGeometry args={[3.0, 3.1]} />
+                <meshPhysicalMaterial color="#aaaaaa" transparent opacity={0.15} roughness={0.1} metalness={0.5} doubleSide />
+            </mesh>
+            {/* Right Window */}
+            <mesh position={[1.55, 0.1, -3.5]} rotation={[-0.1, 0, 0]}>
+                <planeGeometry args={[3.0, 3.1]} />
+                <meshPhysicalMaterial color="#aaaaaa" transparent opacity={0.15} roughness={0.1} metalness={0.5} doubleSide />
             </mesh>
 
             {/* Roof / Ceiling block above head */}
             <mesh position={[0, 2.5, -1]}>
-                <boxGeometry args={[6, 0.5, 5]} />
+                <boxGeometry args={[7, 0.5, 6]} />
                 <meshStandardMaterial color="#0a0a0a" metalness={0.8} />
             </mesh>
             {/* Side walls (pushed further back) */}
@@ -468,8 +512,34 @@ function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, 
         
         if (moveDir.lengthSq() > 0) {
             moveDir.normalize().multiplyScalar(speed);
-            camera.position.x += moveDir.x;
-            camera.position.z += moveDir.z;
+            
+            let nextX = camera.position.x + moveDir.x;
+            let nextZ = camera.position.z + moveDir.z;
+
+            // Simple 2D circle collision resolution with external structures
+            if (!isInsideBunker) {
+                const playerRadius = 0.6;
+                // Multiple passes for sliding against tight corners
+                for (let step = 0; step < 2; step++) {
+                    for (const col of globalColliders) {
+                        const dx = nextX - col.x;
+                        const dz = nextZ - col.z;
+                        const distSq = dx*dx + dz*dz;
+                        const minDist = playerRadius + col.radius;
+                        if (distSq < minDist * minDist) {
+                            const dist = Math.sqrt(distSq);
+                            if (dist > 0.0001) {
+                                const overlap = minDist - dist;
+                                nextX += (dx / dist) * overlap;
+                                nextZ += (dz / dist) * overlap;
+                            }
+                        }
+                    }
+                }
+            }
+
+            camera.position.x = nextX;
+            camera.position.z = nextZ;
         }
     }
 
@@ -693,15 +763,22 @@ function TwistedRuins() {
 
             const rotation = [Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI];
             
+            // Generate collision radius based on scale
+            const radius = type === 'slab' ? Math.max(scale[0], scale[2]) * 0.4 : 0.5;
+
             temp.push({ 
                 position: [x, y + scale[1]/2, z], 
                 rotation, 
                 scale,
-                type 
+                type,
+                radius
             });
         }
         return temp;
     }, [])
+
+    const colliders = useMemo(() => beams.map(b => ({ x: b.position[0], z: b.position[2], radius: b.radius })), [beams]);
+    useColliders(colliders);
     
     // Split into two instance meshes for performance (one for beams, one for slabs)
     const slabData = beams.filter(b => b.type === 'slab');
@@ -726,6 +803,102 @@ function TwistedRuins() {
                     <Instance key={i} position={d.position} rotation={d.rotation} scale={d.scale} />
                 ))}
             </Instances>
+        </group>
+    )
+}
+
+function RuinedCityAlley() {
+    const buildings = useMemo(() => {
+        const temp = [];
+        const start = { x: 15, z: 5 };
+        const end = { x: BUNKER_ENTRANCE[0] - 10, z: BUNKER_ENTRANCE[2] + 10 };
+        const dir = { x: end.x - start.x, z: end.z - start.z };
+        const dist = Math.sqrt(dir.x*dir.x + dir.z*dir.z);
+        const u = { x: dir.x/dist, z: dir.z/dist };
+        const right = { x: -u.z, z: u.x };
+
+        // Place buildings along the path
+        for (let i = 0; i < dist; i += 18) {
+            [-1, 1].forEach(side => {
+                const shift = side * (12 + Math.random() * 8); 
+                const bx = start.x + u.x * i + right.x * shift + (Math.random() - 0.5) * 6;
+                const bz = start.z + u.z * i + right.z * shift + (Math.random() - 0.5) * 6;
+                const y = getTerrainHeight(bx, bz);
+                
+                const width = 10 + Math.random() * 8;
+                const depth = 10 + Math.random() * 8;
+                const height = 40 + Math.random() * 60; 
+                
+                const rotX = (Math.random() - 0.5) * 0.15;
+                const rotY = Math.random() * Math.PI;
+                const rotZ = (Math.random() - 0.5) * 0.15;
+
+                temp.push({
+                    x: bx, z: bz,
+                    y: y + height / 2 - 2,
+                    width, height, depth,
+                    rotX, rotY, rotZ,
+                    radius: Math.max(width, depth) * 0.6,
+                    hasGlow: Math.random() > 0.5,
+                    glowY: (Math.random() - 0.5) * height * 0.7
+                });
+            });
+        }
+
+        // Random additional background skyscrapers
+        for (let j = 0; j < 35; j++) {
+            const bx = 35 + (Math.random() - 0.5) * 150;
+            const bz = -20 + (Math.random() - 0.5) * 150;
+            const distToBunker = Math.sqrt((bx - BUNKER_POS[0])**2 + (bz - BUNKER_POS[2])**2);
+            if (distToBunker < 25) continue; // Keep bunker clear
+
+            const pathDist = Math.abs((bx - start.x)*right.x + (bz - start.z)*right.z);
+            if (pathDist < 18) continue; // Keep alley clear
+            
+            const y = getTerrainHeight(bx, bz);
+            const width = 12 + Math.random() * 12;
+            const depth = 12 + Math.random() * 12;
+            const height = 30 + Math.random() * 80;
+            
+            temp.push({
+                x: bx, z: bz,
+                y: y + height / 2 - 2,
+                width, height, depth,
+                rotX: (Math.random() - 0.5) * 0.1, 
+                rotY: Math.random() * Math.PI, 
+                rotZ: (Math.random() - 0.5) * 0.1,
+                radius: Math.max(width, depth) * 0.6,
+                hasGlow: Math.random() > 0.7,
+                glowY: (Math.random() - 0.5) * height * 0.7
+            });
+        }
+        
+        return temp;
+    }, []);
+
+    const colliders = useMemo(() => buildings.map(b => ({ x: b.x, z: b.z, radius: b.radius })), [buildings]);
+    useColliders(colliders);
+
+    return (
+        <group>
+            {buildings.map((b, i) => (
+                <group key={i} position={[b.x, b.y, b.z]} rotation={[b.rotX, b.rotY, b.rotZ]}>
+                    <mesh>
+                        <boxGeometry args={[b.width, b.height, b.depth]} />
+                        <meshStandardMaterial color="#0f0f11" roughness={0.9} metalness={0.1} />
+                    </mesh>
+                    
+                    {b.hasGlow && (
+                        <>
+                            <mesh position={[0, b.glowY, b.depth/2 + 0.1]}>
+                                <boxGeometry args={[b.width * 0.4, 2, 0.2]} />
+                                <meshBasicMaterial color="#11ff44" transparent opacity={0.15} blending={THREE.AdditiveBlending} />
+                            </mesh>
+                            <pointLight position={[0, b.glowY, b.depth/2 + 3]} color="#11ff44" distance={25} intensity={0.5} decay={2} />
+                        </>
+                    )}
+                </group>
+            ))}
         </group>
     )
 }
@@ -860,6 +1033,9 @@ function DeadTrees() {
         return temp;
     }, [])
 
+    const colliders = useMemo(() => trees.map(t => ({ x: t.position[0], z: t.position[2], radius: 0.5 })), [trees]);
+    useColliders(colliders);
+
     return (
         <group>
             {trees.map((t, i) => (
@@ -915,6 +1091,11 @@ function Rubble() {
 
 function ParkedSpaceship() {
     const y = getTerrainHeight(0, 15);
+    
+    // Register large bounding box/circle for the spaceship
+    const colliders = useMemo(() => [{ x: 0, z: 15, radius: 10 }], []);
+    useColliders(colliders);
+
     return (
         <group position={[0, y + 2.2, 15]} scale={5}>
             <group>
@@ -974,13 +1155,14 @@ function ParkedSpaceship() {
                         <boxGeometry args={[0.6, 0.2, 0.1]} />
                         <meshBasicMaterial color="#111" />
                     </mesh>
-                    <Html position={[0, 0.05, -0.18]} rotation={[0.4, 0, 0]} transform distanceFactor={1.5}>
-                        <div style={{ color: '#ff3300', fontFamily: 'monospace', fontSize: '12px', width: '250px', textAlign: 'center', background: 'rgba(20,0,0,0.8)', padding: '5px', border: '1px solid #ff3300', textShadow: '0 0 5px #ff3300' }}>
-                            <span style={{ fontWeight: 'bold' }}>SYSTEMWARNUNG</span><br/>
-                            KEINE ANTWORT VON DER ERDE...<br/>
-                            <span style={{ fontSize: '10px' }}>Umfeld: Nuklearer Winter / Toxisch</span>
-                        </div>
-                    </Html>
+                    <group position={[0, 0.06, -0.19]} rotation={[0.4, 0, 0]}>
+                        <Text position={[0, 0.05, 0]} fontSize={0.04} color="#ff3300" anchorX="center">
+                            SYSTEMWARNUNG
+                        </Text>
+                        <Text position={[0, 0, 0]} fontSize={0.02} color="#ff3300" anchorX="center">
+                            KEINE ANTWORT VON DER ERDE...
+                        </Text>
+                    </group>
                     <pointLight position={[0, 0.1, -0.1]} color="#ff3300" intensity={0.5} distance={1.5} />
                     
                     {/* Emergency red blinking light */}
@@ -998,55 +1180,157 @@ function ParkedSpaceship() {
 // ============= MISSION COMPONENTS =============
 
 function SignalBeacon({ missionStage }) {
-    const beaconRef = useRef()
-    const glowRef = useRef()
-    
     if (missionStage < 1 || missionStage > 2) return null;
     
-    const beaconY = getTerrainHeight(BUNKER_ENTRANCE[0], BUNKER_ENTRANCE[2]) + 8;
-    
-    return (
-        <group position={[BUNKER_ENTRANCE[0], beaconY, BUNKER_ENTRANCE[2]]}>
-            {/* Pulsing beacon light */}
-            <mesh ref={beaconRef}>
-                <sphereGeometry args={[0.3, 16, 16]} />
-                <meshBasicMaterial color="#00ff88" transparent opacity={0.8} />
-            </mesh>
-            {/* Glow sphere */}
-            <mesh ref={glowRef} scale={2}>
-                <sphereGeometry args={[0.5, 16, 16]} />
-                <meshBasicMaterial color="#00ff44" transparent opacity={0.15} />
-            </mesh>
-            {/* Vertical beam */}
-            <mesh position={[0, 15, 0]}>
-                <cylinderGeometry args={[0.05, 0.2, 30, 8]} />
-                <meshBasicMaterial color="#00ff66" transparent opacity={0.3} />
-            </mesh>
-            {/* Prompt panel */}
-            <mesh position={[0, 2.3, 0]}>
-                <planeGeometry args={[2.2, 0.55]} />
-                <meshBasicMaterial color="#00ff88" transparent opacity={0.35} side={THREE.DoubleSide} />
-            </mesh>
-            <mesh position={[0, 2.3, 0.01]}>
-                <planeGeometry args={[2.35, 0.7]} />
-                <meshBasicMaterial color="#00ff88" transparent opacity={0.14} wireframe side={THREE.DoubleSide} />
-            </mesh>
-        </group>
-    )
+    return null; // We moved the guidance directly to the Bunker component
 }
 
 function Bunker({ missionStage }) {
     const bunkerY = getTerrainHeight(BUNKER_POS[0], BUNKER_POS[2]);
     const doorGlowRef = useRef()
+    const radioGlowRef = useRef()
+    const auraMatRef = useRef()
+    const beamMatRef = useRef()
+    
+    // Register large bounding circle for the bunker exterior
+    const colliders = useMemo(() => [{ x: BUNKER_POS[0], z: BUNKER_POS[2], radius: 6 }], []);
+    useColliders(colliders);
     
     useFrame((state) => {
+        const t = state.clock.getElapsedTime();
         if (doorGlowRef.current && missionStage >= 1 && missionStage <= 2) {
-            doorGlowRef.current.intensity = 2 + Math.sin(state.clock.getElapsedTime() * 3) * 1;
+            doorGlowRef.current.intensity = 2 + Math.sin(t * 3) * 1;
+        }
+        if (radioGlowRef.current && missionStage >= 1 && missionStage <= 2) {
+            // Pulsating strong radioactive glow that illuminates the surroundings realisitcally
+            radioGlowRef.current.intensity = 80 + Math.sin(t * 2) * 20;
+        }
+        if (auraMatRef.current && missionStage >= 1 && missionStage <= 2) {
+            auraMatRef.current.uniforms.uTime.value = t;
+        }
+        if (beamMatRef.current && missionStage >= 1 && missionStage <= 2) {
+            beamMatRef.current.uniforms.uTime.value = t;
         }
     })
     
     return (
         <group position={[BUNKER_POS[0], bunkerY, BUNKER_POS[2]]}>
+            {/* --- SOFT VOLUMETRIC RADIOACTIVE GLOW & BEAM --- */}
+            {missionStage >= 1 && missionStage <= 2 && (
+                <group position={[0, 0, -4]}>
+                    {/* Realistic ground illumination */}
+                    <pointLight 
+                        ref={radioGlowRef}
+                        position={[0, 2, 0]} 
+                        color="#39ff14" 
+                        distance={300} 
+                        decay={1.5} 
+                    />
+                    
+                    {/* Soft foggy volumetric dome (Aura) */}
+                    <mesh position={[0, -2, 0]}>
+                        <sphereGeometry args={[45, 32, 24, 0, Math.PI * 2, 0, Math.PI / 2]} />
+                        <shaderMaterial
+                            ref={auraMatRef}
+                            transparent
+                            depthWrite={false}
+                            blending={THREE.AdditiveBlending}
+                            side={THREE.DoubleSide}
+                            uniforms={{ uTime: { value: 0 } }}
+                            vertexShader={`
+                                varying vec3 vPos;
+                                varying vec3 vNormal;
+                                varying vec3 vViewPosition;
+                                void main() {
+                                    vPos = position;
+                                    vNormal = normal;
+                                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                                    vViewPosition = -mvPosition.xyz;
+                                    gl_Position = projectionMatrix * mvPosition;
+                                }
+                            `}
+                            fragmentShader={`
+                                uniform float uTime;
+                                varying vec3 vPos;
+                                varying vec3 vNormal;
+                                varying vec3 vViewPosition;
+                                void main() {
+                                    // Fade completely into the top (y goes from 0 up to 45)
+                                    float heightFade = smoothstep(25.0, 0.0, vPos.y); 
+                                    
+                                    // Fresnel effect makes the edges softer and volume-like
+                                    vec3 normal = normalize(vNormal);
+                                    vec3 viewDir = normalize(vViewPosition);
+                                    float fresnel = max(0.0, dot(normal, viewDir));
+                                    
+                                    // Combine base aura with pulse
+                                    float pulse = 0.5 + 0.5 * sin(uTime * 1.5);
+                                    float alpha = heightFade * pow(fresnel, 2.0) * (0.15 + 0.1 * pulse);
+                                    
+                                    vec3 color = mix(vec3(0.05, 0.8, 0.15), vec3(0.3, 1.0, 0.4), pulse * 0.5);
+                                    gl_FragColor = vec4(color, alpha);
+                                }
+                            `}
+                        />
+                    </mesh>
+
+                    {/* Volumetric sky beam fading out softly */}
+                    <mesh position={[0, 150, 0]}>
+                        <cylinderGeometry args={[14, 6, 300, 32, 1, true]} />
+                        <shaderMaterial
+                            ref={beamMatRef}
+                            transparent
+                            depthWrite={false}
+                            blending={THREE.AdditiveBlending}
+                            side={THREE.DoubleSide}
+                            uniforms={{ uTime: { value: 0 } }}
+                            vertexShader={`
+                                varying vec3 vPos;
+                                varying float vRadius;
+                                void main() {
+                                    vPos = position;
+                                    // The radius scales linearly from 14 (top) to 6 (bot)
+                                    // y goes from -150 to 150
+                                    float t = (position.y + 150.0) / 300.0;
+                                    vRadius = mix(6.0, 14.0, t);
+                                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                                }
+                            `}
+                            fragmentShader={`
+                                uniform float uTime;
+                                varying vec3 vPos;
+                                varying float vRadius;
+                                
+                                void main() {
+                                    float r = length(vPos.xz);
+                                    float edgeDist = r / vRadius;
+                                    
+                                    // Very soft smooth radial falloff
+                                    float radialFade = smoothstep(1.0, 0.0, edgeDist);
+                                    
+                                    // Vertical fade
+                                    float h = (vPos.y + 150.0) / 300.0;
+                                    float heightFade = smoothstep(0.9, 0.0, h);
+                                    
+                                    // Inner hot core
+                                    float core = smoothstep(0.4, 0.0, edgeDist);
+                                    
+                                    float pulse = 0.5 + 0.5 * sin(uTime * 3.0 - h * 12.0); // pulse travels upwards
+                                    
+                                    float alpha = radialFade * heightFade * (0.2 + 0.15 * pulse);
+                                    
+                                    vec3 outerColor = vec3(0.0, 0.6, 0.1);
+                                    vec3 coreColor = vec3(0.5, 1.0, 0.5);
+                                    vec3 color = mix(outerColor, coreColor, core);
+                                    
+                                    gl_FragColor = vec4(color, alpha);
+                                }
+                            `}
+                        />
+                    </mesh>
+                </group>
+            )}
+
             {/* Main bunker structure - half-buried concrete block */}
             <mesh position={[0, 1, -4]} castShadow receiveShadow>
                 <boxGeometry args={[10, 4, 12]} />
@@ -1491,6 +1775,10 @@ function BunkerBarrier({ missionStage }) {
     
     const bunkerY = getTerrainHeight(BUNKER_POS[0], BUNKER_POS[2]);
     
+    // Instead of using useMemo inside the conditional return (which violates rules of hooks), 
+    // we just use a small static collider for the debris around the door area.
+    // However, the bunker itself is already solid. But if we need it:
+    
     return (
         <group position={[BUNKER_POS[0], bunkerY, BUNKER_POS[2]]}>
             {[...Array(20)].map((_, i) => {
@@ -1591,10 +1879,14 @@ function ModernBuildings() {
             const height = 15 + Math.random() * 60;
             const width = 6 + Math.random() * 8;
             const depth = 6 + Math.random() * 8;
-            temp.push({ x, z, height, width, depth, rotY: Math.floor(Math.random() * 4) * (Math.PI/2) });
+            const radius = Math.max(width, depth) / 2;
+            temp.push({ x, z, height, width, depth, radius, rotY: Math.floor(Math.random() * 4) * (Math.PI/2) });
         }
         return temp;
     }, []);
+
+    const colliders = useMemo(() => buildings.map(b => ({ x: b.x, z: b.z, radius: b.radius })), [buildings]);
+    useColliders(colliders);
 
     return (
         <group>
@@ -1633,11 +1925,15 @@ function NormalTrees() {
             temp.push({
                 x, z,
                 height: 5 + Math.random() * 8,
-                canopy: 1.5 + Math.random() * 2
+                canopy: 1.5 + Math.random() * 2,
+                radius: 0.8
             });
         }
         return temp;
     }, []);
+
+    const colliders = useMemo(() => trees.map(t => ({ x: t.x, z: t.z, radius: t.radius })), [trees]);
+    useColliders(colliders);
 
     return (
         <group>
@@ -1963,6 +2259,7 @@ export default function SurfaceScene({ missionStage, setMissionStage, dialogVisi
         <>
           <WastelandGround />
           <TwistedRuins />
+          <RuinedCityAlley />
           <DeadTrees />
           <Rubble />
           <Graveyard />
