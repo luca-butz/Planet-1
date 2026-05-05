@@ -197,11 +197,12 @@ const AtmosphereMaterial = {
   `
 }
 
-function Spaceship({ transitionProgress, transitioning }) {
+function Spaceship({ transitionProgress, transitioning, isEntering, setIsEntering }) {
   const group = useRef()
   const { camera } = useThree()
   const startPos = useRef(new THREE.Vector3())
   const startQuat = useRef(new THREE.Quaternion())
+  const [entryProgress, setEntryProgress] = useState(0)
 
   useEffect(() => {
     if (transitioning && group.current) {
@@ -210,10 +211,42 @@ function Spaceship({ transitionProgress, transitioning }) {
     }
   }, [transitioning])
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     if (!group.current) return
 
     const t = state.clock.getElapsedTime()
+
+    if (isEntering) {
+       const newProgress = Math.min(1, entryProgress + delta / 3.0)
+       setEntryProgress(newProgress)
+       
+       if (newProgress >= 1.0) {
+           setIsEntering(false)
+       }
+       
+       const easeOut = 1 - Math.pow(1 - newProgress, 3) 
+       
+       group.current.position.copy(camera.position)
+       group.current.quaternion.copy(camera.quaternion)
+       
+       const targetZ = -3.2
+       const targetY = -1.2
+       
+       const startZ = 20
+       const startY = 4 
+       
+       const currentZ = startZ + (targetZ - startZ) * easeOut
+       const currentY = startY + (targetY - startY) * easeOut
+       
+       group.current.translateZ(currentZ)
+       group.current.translateY(currentY)
+       
+       group.current.rotation.z += Math.sin(newProgress * Math.PI) * 0.4
+       group.current.rotation.x += Math.sin(newProgress * Math.PI) * -0.2
+       
+       return
+    }
+
     const landingBoost = THREE.MathUtils.smoothstep(transitionProgress, 0.0, 1.0)
 
     if (!transitioning) {
@@ -579,7 +612,7 @@ function FlightControls({ active, onTriggerLanding, missionStage, setMissionStag
   return null
 }
 
-export default function SpaceScene({ onLand, transitioning, onTransitionComplete, missionStage, setMissionStage }) {
+export default function SpaceScene({ onLand, transitioning, onTransitionComplete, missionStage, setMissionStage, isEntering, setIsEntering }) {
   const { camera } = useThree()
   const [transitionProgress, setTransitionProgress] = useState(0)
   const startPositionRef = useRef(new THREE.Vector3(0, 0, 10))
@@ -640,14 +673,14 @@ export default function SpaceScene({ onLand, transitioning, onTransitionComplete
 
   return (
     <>
-      <FlightControls active={!transitioning} onTriggerLanding={onLand} missionStage={missionStage} setMissionStage={setMissionStage} />
+      <FlightControls active={!transitioning && !isEntering} onTriggerLanding={onLand} missionStage={missionStage} setMissionStage={setMissionStage} />
 
       <ambientLight intensity={0.1} />
       <directionalLight position={[10, 5, 5]} intensity={3} color="#ffeebb" />
       <directionalLight position={[-10, 0, -5]} intensity={0.5} color="#202040" />
       <spotLight position={[0, 0, -10]} angle={1} penumbra={1} intensity={5} color="#5500ff" />
 
-      <Spaceship transitionProgress={transitionProgress} transitioning={transitioning} />
+      <Spaceship transitionProgress={transitionProgress} transitioning={transitioning} isEntering={isEntering} setIsEntering={setIsEntering} />
       <Planet onLand={onLand} transitioning={transitioning} />
     </>
   )

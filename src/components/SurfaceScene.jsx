@@ -1,8 +1,9 @@
-import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react'
+import React, { useMemo, useEffect, useState, useRef, useCallback, useContext } from 'react'
 import { PointerLockControls, Stars, Cloud, Instance, Instances, Html, Text } from '@react-three/drei'
 import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { createNoise2D } from 'simplex-noise'
+import { SetKeypadActiveContext } from '../App'
 
 // Global noise instance
 const noise2D = createNoise2D();
