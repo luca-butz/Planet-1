@@ -1,6 +1,6 @@
 import React, { useState, Suspense, useEffect, useRef, useCallback } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { Stars, Loader } from '@react-three/drei'
+import { Stars, Html, Loader } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, Noise } from '@react-three/postprocessing'
 import SpaceScene from './components/SpaceScene'
 import SurfaceScene from './components/SurfaceScene'
@@ -43,10 +43,10 @@ const MISSION_TEXTS = {
     duration: 15000
   },
   1: {
-    title: 'SAUERSTOFF-LIMIT',
-    text: 'Achtung: Die Toxizität der Außenluft korrodiert die Filter deines Anzugs. Du hast nicht viel Zeit! Das Signal stammt aus einer unterirdischen Einrichtung. Suche nach grüner Strahlung in der Ferne und einem Zugangscode in den Trümmern davor.',
-    hint: 'Finde den Bunkereingang und den Code! Dein Anzug versagt bald!',
-    duration: 15000
+    title: 'LANDUNG ERFOLGREICH — SAUERSTOFF-LIMIT',
+    text: 'Du hast auf der aschebedeckten Oberfläche aufgesetzt. Die Toxizität der Außenluft korrodiert die Filter deines Anzugs — du hast nicht viel Zeit! Das Notsignal stammt aus einer unterirdischen Einrichtung. Suche nach grüner Strahlung in der Ferne und einem Zugangscode in den Trümmern davor.',
+    hint: 'Finde den Bunker! (Tipp: In der Nähe des Raumschiffes lädt sich der Sauerstoff wieder auf)',
+    duration: 18000
   },
   2: {
     title: 'BUNKEREINGANG GEFUNDEN',
@@ -55,36 +55,42 @@ const MISSION_TEXTS = {
     duration: 15000
   },
   3: {
-    title: 'BUNKER — EINGANGSHALLE',
-    text: 'Du betrittst den Bunker. Die Luft ist abgestanden, aber atembar. Notbeleuchtung wirft schwaches Licht auf sterile Wände. Links und rechts stehen aufgerissene Schränke, am Boden liegen verstreute Dokumente. Ein Terminal an der Wand blinkt noch — es scheint Strom zu haben.',
-    hint: 'Gehe zum blinkenden Terminal und drücke E',
+    title: 'BUNKER — SICHERHEITSZONE',
+    text: 'Du betrittst den Bunker. Die Luft ist abgestanden, aber atembar. Notbeleuchtung wirft schwaches Licht auf sterile Wände. Die internen Sicherheitssysteme sind noch aktiv. Bevor du weiter vordringst, solltest du dir die EMP-Waffe weiter hinten im Korridor beschaffen. Pass auf die Sicherheitsdrohne auf!',
+    hint: 'Schleiche dich an der Drohne vorbei zur EMP-Waffe (nicht in den Suchscheinwerfer geraten!)',
     duration: 12000
   },
   4: {
+    title: 'EMP-WAFFE EINGESAMMELT',
+    text: 'Waffe online. Drücke Q, um sie auszurüsten. Die Waffe hat eine eigene Taschenlampe integriert. Die Terminals geben nun den Zugriff frei.',
+    hint: 'Kehre zum blinkenden Terminal 1 in der Eingangshalle zurück und drücke E',
+    duration: 12000
+  },
+  5: {
     title: 'TERMINAL 1 — VORWARNUNG',
     text: '"Logbuch, Dr. Elena Voss.\n\nDie Spannungen zwischen den Nationen eskalieren weiter. Die Drohungen mit Nuklearwaffen sind kein leeres Gerede mehr. Wir haben beschlossen, nicht länger zu warten.\n\nWir beginnen heute offiziell mit dem Bau des Notfallreaktors tief unter der Erde. Wenn das Schlimmste passiert, wird dieser Reaktor in der Lage sein, die Atmosphäre zu filtern. Er kann gewaltige Mengen an Staub und radioaktiver Asche aus der Luft ziehen und den nuklearen Winter stoppen, bevor er die gesamte Biosphäre dauerhaft zerstört.\\n\\nHoffentlich brauchen wir ihn nie."',
     hint: 'Gehe tiefer — finde Terminal 2 im Labor Alpha',
     duration: 25000
   },
-  5: {
+  6: {
     title: 'TERMINAL 2 — DER KRIEG',
     text: '"Es ist passiert.\n\nDie Meldungen kamen vor drei Stunden rein. Raketenstarts auf der ganzen Welt. Das globale Stromnetz ist zusammengebrochen. Die Satellitenverbindungen brechen nacheinander ab.\n\nWir konnten den Schild gerade noch rechtzeitig aktivieren. Die Erschütterungen der Oberfläche reichten bis hier unten, 200 Meter tief. Einige der Korridore wurden beschädigt. Wir sind von der Welt dort oben abgeschnitten.\\n\\nWir wissen nicht, wie viel von der Menschheit noch übrig ist. Aber wir müssen unseren Plan fortsetzen. Der Reaktor ist unsere einzige Priorität."',
     hint: 'Finde Terminal 3 im Serverraum (Folge dem Korridor)',
     duration: 30000
   },
-  6: {
+  7: {
     title: 'TERMINAL 3 — LETZTE HOFFNUNG',
     text: '"Tag 842 seit dem Fall.\n\nDie Sensoren an der Oberfläche bestätigen unsere schlimmsten Befürchtungen. Die Aschewolken sind so dicht, dass absolut kein Sonnenlicht mehr durchdringt. Die globale Temperatur fällt auf ein lebensfeindliches Minimum. Ein endloser, nuklearer Winter.\n\nWir haben den Reaktor fast fertig. Er ist die letzte Chance der Menschheit, die Atmosphäre wiederherzustellen.\n\nAber wir können ihn noch nicht aktivieren. Eine Erschütterung hat das Kühlsystem im Bio-Labor beschädigt und die Hauptantenne im Serverraum ist offline gegangen. Ohne diese Systeme überlastet der Reaktor beim Start."',
     hint: 'Weiter in die Reaktorkammer — finde Terminal 4',
     duration: 30000
   },
-  7: {
+  8: {
     title: 'TERMINAL 4 — AKTIVIERUNGSANLEITUNG',
     text: '"Automatisches Sicherheitsprotokoll.\n\nWARNUNG: Reaktorkern im Standby-Modus.\nUm die atmosphärische Reinigung zu initiieren, müssen folgende 4 Subsysteme manuell reaktiviert werden:\n\n1. ENERGIEZELLEN (Ersatzbatterien im Labor Alpha finden)\n2. ANTENNEN (Satellitenkontakt im Serverraum herstellen)\n3. KÜHLUNG (Ventile im Bio-Labor reparieren)\n4. SICHERHEITSPROTOKOLL (Code aus dem Vault abrufen)\n\nErst danach kann der Reaktor in der Hauptkammer gestartet werden. Handle mit Vorsicht."',
     hint: 'Aktiviere die 4 Systeme (Labor, Serverraum, Bio-Labor, Vault)',
     duration: 35000
   },
-  8: {
+  9: {
     title: 'REAKTOR BEREIT',
     text: 'Alle vier Systeme sind online. Die Energiezellen versorgen den Kern, die Antennen haben die atmosphärischen Ziele kalibriert, die Kühlung stabilisiert die Temperaturen und die Sicherheitsprotokolle sind autorisiert.\n\nDer Notfallreaktor ist bereit für die Zündung.\n\nZeit, den Himmel zu reinigen. Zeit, die ewige Nacht zu beenden.',
     hint: 'Kehre zur Reaktorkammer zurück und drücke E an der Hauptkonsole',
@@ -103,58 +109,84 @@ function KeypadUI({ code, onSolve, onCancel }) {
   const [input, setInput] = useState('')
   const [error, setError] = useState(false)
 
-  const handlePress = (num) => {
-    if (input.length < 4) {
-      const nextInput = input + num
-      setInput(nextInput)
-      setError(false)
-      
-      if (nextInput.length === 4) {
-        if (nextInput === code) {
-          setTimeout(onSolve, 500)
-        } else {
-          setTimeout(() => { setError(true); setInput('') }, 500)
-        }
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key >= '0' && e.key <= '9' && !error) {
+        setInput(prev => {
+          if (prev.length >= 4) return prev;
+          const nextInput = prev + e.key;
+          if (nextInput.length === 4) {
+            if (nextInput === code) {
+              setTimeout(onSolve, 300);
+            } else {
+              setTimeout(() => { setError(true); setInput(''); }, 500);
+            }
+          }
+          return nextInput;
+        });
+      } else if (e.key === 'Escape' || e.key === 'e' || e.key === 'E') {
+        onCancel();
       }
-    }
-  }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [code, onSolve, onCancel, error]);
 
   return (
     <div style={{
-      position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-      background: '#111', border: '4px solid #333', padding: '20px', borderRadius: '10px',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto',
-      boxShadow: '0 0 50px rgba(0,0,0,0.8)'
+      position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+      background: 'rgba(5, 5, 8, 0.95)', backdropFilter: 'blur(15px)',
+      display: 'flex', justifyContent: 'center', alignItems: 'center',
+      zIndex: 9999, pointerEvents: 'auto'
     }}>
-      <div style={{ color: '#aaa', marginBottom: '10px', fontSize: '18px' }}>PROJEKT HELIOS ZUGANG</div>
       <div style={{
-        background: error ? '#500' : '#222', color: error ? '#f00' : '#0f0',
-        width: '100%', height: '50px', display: 'flex', justifyContent: 'center',
-        alignItems: 'center', fontSize: '30px', fontFamily: 'monospace',
-        marginBottom: '20px', letterSpacing: '5px', border: 'inset 2px #000'
+        background: '#111', border: '4px solid #333', padding: '40px', borderRadius: '15px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        boxShadow: '0 0 50px rgba(0,255,150,0.1)', width: '350px'
       }}>
-        {error ? 'ERR' : input.padEnd(4, '_')}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-        {[1,2,3,4,5,6,7,8,9].map(n => (
-          <button key={n} onClick={() => handlePress(n)} style={{
-            padding: '15px 20px', fontSize: '20px', fontWeight: 'bold',
-            background: '#333', color: 'white', border: '2px solid #555', cursor: 'pointer'
-          }}>{n}</button>
-        ))}
-        <button onClick={onCancel} style={{ padding: '15px 20px', fontSize: '20px', background: '#522', color: 'white', border: '2px solid #733', cursor: 'pointer' }}>X</button>
-        <button onClick={() => handlePress(0)} style={{ padding: '15px 20px', fontSize: '20px', fontWeight: 'bold', background: '#333', color: 'white', border: '2px solid #555', cursor: 'pointer' }}>0</button>
-        <button onClick={() => setInput('')} style={{ padding: '15px 20px', fontSize: '20px', background: '#444', color: 'white', border: '2px solid #666', cursor: 'pointer' }}>C</button>
+        <div style={{ color: '#aaa', marginBottom: '20px', fontSize: '22px', textAlign: 'center', fontWeight: 'bold', letterSpacing: '2px' }}>
+          PROJEKT HELIOS<br/><span style={{ fontSize: '14px', color: '#666', letterSpacing: '1px' }}>SYSTEMZUGANG</span>
+        </div>
+        <div style={{
+          background: error ? '#500' : '#1a221a', color: error ? '#f00' : '#0f0',
+          width: '100%', height: '70px', display: 'flex', justifyContent: 'center',
+          alignItems: 'center', fontSize: '40px', fontFamily: 'monospace',
+          marginBottom: '30px', letterSpacing: '10px', border: 'inset 3px #000',
+          boxShadow: 'inset 0 0 15px rgba(0,0,0,0.9)'
+        }}>
+          {error ? 'ERR' : input.padEnd(4, '_')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', width: '100%' }}>
+          {[1,2,3,4,5,6,7,8,9].map(n => (
+            <div key={n} style={{
+              padding: '15px 0', fontSize: '24px', fontWeight: 'bold', textAlign: 'center',
+              background: '#222', color: '#ddd', border: '2px solid #444', borderRadius: '8px',
+              fontFamily: 'monospace'
+            }}>
+              {n}
+            </div>
+          ))}
+          <div style={{
+            gridColumn: '1 / span 3', padding: '12px 0', fontSize: '16px', background: '#301818',
+            color: '#ff8888', border: '2px solid #602020', textAlign: 'center', borderRadius: '8px',
+            fontFamily: 'monospace', marginTop: '10px'
+          }}>
+            ABBRUCH (ESC / E)
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
-export const SetKeypadActiveContext = React.createContext(null)
-
-function SceneManager({ view, setView, missionStage, setMissionStage, dialogVisible, coresCollected, setCoresCollected, isGameEntering, setIsGameEntering }) {
+function SceneManager({ view, setView, missionStage, setMissionStage, dialogVisible, coresCollected, setCoresCollected, isGameEntering, setIsGameEntering, setOxygen, keypadActive, setKeypadActive }) {
     const [transitioning, setTransitioning] = useState(false)
-    const [keypadActive, setKeypadActive] = useState(false)
+
+    useEffect(() => {
+        if (keypadActive) {
+            // document.exitPointerLock();
+        }
+    }, [keypadActive]);
 
     const startTransition = () => {
         setTransitioning(true)
@@ -163,23 +195,14 @@ function SceneManager({ view, setView, missionStage, setMissionStage, dialogVisi
     const finishTransition = () => {
         setTransitioning(false)
         setView('surface')
-        setMissionStage(0)
+        setMissionStage(1)
     }
 
     if (view === 'surface') {
         return (
-            <SetKeypadActiveContext.Provider value={setKeypadActive}>
-               <SurfaceScene missionStage={missionStage} setMissionStage={setMissionStage} dialogVisible={dialogVisible} coresCollected={coresCollected} setCoresCollected={setCoresCollected} />
-               {keypadActive && (
-                  <Html center zIndexRange={[1000, 0]}>
-                     <KeypadUI 
-                        code="7341" 
-                        onSolve={() => { setKeypadActive(false); setMissionStage(3); }} 
-                        onCancel={() => setKeypadActive(false)} 
-                     />
-                  </Html>
-               )}
-            </SetKeypadActiveContext.Provider>
+            <>
+               <SurfaceScene missionStage={missionStage} setMissionStage={setMissionStage} dialogVisible={dialogVisible} coresCollected={coresCollected} setCoresCollected={setCoresCollected} setOxygen={setOxygen} setKeypadActive={setKeypadActive} keypadActive={keypadActive} />
+            </>
         )
     }
 
@@ -195,7 +218,29 @@ export default function App() {
   const [timeReversalPhase, setTimeReversalPhase] = useState(0)
   const [coresCollected, setCoresCollected] = useState([false, false, false, false])
   const [isGameEntering, setIsGameEntering] = useState(false)
+  const [oxygen, setOxygen] = useState(100)
+  const [keypadActive, setKeypadActive] = useState(false)
   const prevStageRef = useRef(-2)
+
+  // Oxygen depletion interval
+  useEffect(() => {
+    let interval;
+    if (view === 'surface' && (missionStage === 1 || missionStage === 2)) {
+        interval = setInterval(() => {
+            setOxygen(prev => {
+                if (prev <= 1) {
+                    alert("SAUERSTOFF AUFGEBRAUCHT! DEIN ANZUG HAT VERSAGT.");
+                    window.location.reload();
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1200); // 120 seconds total inside radiation
+    } else {
+        setOxygen(100);
+    }
+    return () => { if (interval) clearInterval(interval); }
+  }, [view, missionStage]);
 
   // E key to dismiss mission dialog
   const dismissDialog = useCallback(() => {
@@ -348,8 +393,14 @@ export default function App() {
       </div>
 
       {/* Interaction Prompts handled natively or via HTML */}
-      <div id="keypad-container" style={{ display: 'none', zIndex: 1000, position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.5)' }}>
-          {/* Will be rendered via Portal if activated from SurfaceScene */}
+      <div id="keypad-container" style={{ display: keypadActive ? 'block' : 'none', zIndex: 1000, position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.5)' }}>
+          {keypadActive && (
+              <KeypadUI 
+                  code="7341" 
+                  onSolve={() => { setKeypadActive(false); setMissionStage(3); }} 
+                  onCancel={() => setKeypadActive(false)} 
+              />
+          )}
       </div>
 
       <div className="overlay">
@@ -367,7 +418,7 @@ export default function App() {
               RETURN TO ORBIT
             </button>
             <div className="instructions">
-              CLICK TO EXPLORE • WASD TO WALK • T FLASHLIGHT {missionStage >= 2 ? '• E INTERAGIEREN' : ''}
+              CLICK TO EXPLORE • WASD TO WALK • T FLASHLIGHT • Q WAFFE {missionStage >= 2 ? '• E INTERAGIEREN' : ''}
             </div>
           </div>
         )}
@@ -401,6 +452,31 @@ export default function App() {
         )}
       </div>
 
+      {/* Oxygen Meter Overlay */}
+      {view === 'surface' && (missionStage === 1 || missionStage === 2) && (
+        <div style={{
+          position: 'absolute', top: '20px', right: '20px',
+          background: 'rgba(0,0,0,0.8)', padding: '15px 20px', 
+          border: '1px solid #555', color: 'white', fontFamily: 'monospace',
+          zIndex: 100, borderRadius: '5px'
+        }}>
+           <div style={{ marginBottom: '8px', color: oxygen < 30 ? '#f00' : '#888' }}>
+              ANZUG-SAUERSTOFF Level kritisch
+           </div>
+           <div style={{ width: '200px', height: '15px', background: '#222', border: '1px solid #111' }}>
+              <div style={{ 
+                  width: `${oxygen}%`, height: '100%', 
+                  background: oxygen < 30 ? '#f00' : '#0f0',
+                  transition: 'width 1s linear',
+                  boxShadow: oxygen < 30 ? '0 0 10px #f00' : '0 0 10px #0f0'
+              }} />
+           </div>
+           <div style={{ marginTop: '8px', fontSize: '14px', textAlign: 'right', color: oxygen < 30 ? '#f00' : '#ddd', fontWeight: 'bold' }}>
+              {Math.floor(oxygen)}% VERBLEIBEND
+           </div>
+        </div>
+      )}
+
       {/* Story Dialog Popup */}
       {showMissionText && currentMission && currentMission.text && missionStage < 11 && (
         <div className={`mission-dialog ${missionFade ? 'fade-out' : 'fade-in'}`}>
@@ -412,13 +488,13 @@ export default function App() {
         </div>
       )}
 
-      <Canvas shadows camera={{ position: [0, 0, 12], fov: 45 }} gl={{ antialias: false, toneMapping: THREE.ReinhardToneMapping, toneMappingExposure: 1.5 }}>
+      <Canvas shadows dpr={[1, 1.5]} performance={{ min: 0.5 }} camera={{ position: [0, 0, 12], fov: 45 }} gl={{ antialias: false, toneMapping: THREE.ReinhardToneMapping, toneMappingExposure: 1.5 }}>
         <color attach="background" args={[missionStage === 12 ? '#0a182a' : '#000000']} />
         
         <Suspense fallback={null}>
             <Stars radius={300} depth={50} count={10000} factor={6} saturation={0} fade speed={0.5} />
             
-            <SceneManager view={view} setView={setView} missionStage={missionStage} setMissionStage={setMissionStage} dialogVisible={showMissionText} coresCollected={coresCollected} setCoresCollected={setCoresCollected} isGameEntering={isGameEntering} setIsGameEntering={setIsGameEntering} />
+            <SceneManager view={view} setView={setView} missionStage={missionStage} setMissionStage={setMissionStage} dialogVisible={showMissionText} coresCollected={coresCollected} setCoresCollected={setCoresCollected} isGameEntering={isGameEntering} setIsGameEntering={setIsGameEntering} setOxygen={setOxygen} keypadActive={keypadActive} setKeypadActive={setKeypadActive} />
 
             <EffectComposer>
               <Bloom luminanceThreshold={0.4} luminanceSmoothing={0.9} height={300} intensity={missionStage === 12 ? 0.3 : 1.0} />

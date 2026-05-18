@@ -3,7 +3,6 @@ import { PointerLockControls, Stars, Cloud, Instance, Instances, Html, Text } fr
 import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { createNoise2D } from 'simplex-noise'
-import { SetKeypadActiveContext } from '../App'
 
 // Global noise instance
 const noise2D = createNoise2D();
@@ -26,7 +25,7 @@ export function useColliders(items) {
 
 // Bunker configuration - placed further away for longer exploration
 const BUNKER_POS = [70, 0, -60];
-const BUNKER_ENTRANCE = [70, 0, -54];
+const BUNKER_ENTRANCE = [70, 0, -57.5];
 const BUNKER_INSIDE = [70, -8, -62];
 
 // Bunker room layout (z-offsets relative to BUNKER_INSIDE[2])
@@ -45,10 +44,10 @@ const BUNKER_ROOMS = [
 
 // Terminal config: position offsets from BUNKER_INSIDE, active at which stage
 const TERMINAL_CONFIG = [
-    { xOff: -3, zOff: -6, activeStage: 3, color: '#00ff44', darkColor: '#003300' },
-    { xOff: 3, zOff: -24, activeStage: 4, color: '#ff4400', darkColor: '#330000' },
-    { xOff: -3, zOff: -42, activeStage: 5, color: '#ffaa00', darkColor: '#332200' },
-    { xOff: 3, zOff: -60, activeStage: 6, color: '#ff00ff', darkColor: '#330033' },
+    { xOff: -3, zOff: -6, activeStage: 4, color: '#00ff44', darkColor: '#003300' },
+    { xOff: 3, zOff: -24, activeStage: 5, color: '#ff4400', darkColor: '#330000' },
+    { xOff: -3, zOff: -42, activeStage: 6, color: '#ffaa00', darkColor: '#332200' },
+    { xOff: 3, zOff: -60, activeStage: 7, color: '#ff00ff', darkColor: '#330033' },
 ];
 
 function getBunkerHalfWidth(z) {
@@ -80,12 +79,12 @@ function getTerrainHeight(x, z) {
 }
 
 function _rawTerrainHeight(x, z) {
-    let elevation = noise2D(x * 0.01, z * 0.01) * 8; 
-    elevation += noise2D(x * 0.03, z * 0.03) * 3;
+    let elevation = noise2D(x * 0.01, z * 0.01) * 3; // Reduced amplitude
+    elevation += noise2D(x * 0.03, z * 0.03) * 1.5;  // Reduced amplitude
     
     const trenchCheck = noise2D(x * 0.005, z * 0.005);
     if (trenchCheck < -0.3) {
-        elevation -= 6.0;
+        elevation -= 3.0; // Reduced trench depth
     }
     
     return elevation;
@@ -264,6 +263,26 @@ function FlashlightModel({ isOn }) {
     )
 }
 
+function WeaponPickup({ hasWeapon, pos }) {
+    if (hasWeapon) return null;
+    return (
+        <group position={[pos.x, pos.y, pos.z]}>
+            <mesh rotation={[0, Math.PI/4, 0]}>
+                <boxGeometry args={[0.8, 0.2, 0.4]} />
+                <meshStandardMaterial color="#222" />
+            </mesh>
+            <mesh position={[0, 0.15, 0]}>
+                <boxGeometry args={[0.6, 0.1, 0.2]} />
+                <meshStandardMaterial color="#00ffcc" metalness={0.8} />
+            </mesh>
+            <pointLight distance={3} intensity={1} color="#00ffcc" />
+            <Text position={[0, 0.6, 0]} fontSize={0.2} color="#00ffcc" anchorX="center">
+                [ E ] EMP-WAFFE AUFHEBEN
+            </Text>
+        </group>
+    );
+}
+
 // Simulated 1st Person Cockpit Interior for after landing
 function LandedCockpit() {
     const group = useRef()
@@ -394,47 +413,195 @@ function LandedCockpit() {
     )
 }
 
-function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, coresCollected, setCoresCollected }) {
+function EMPWeapon({ isEquipped }) {
+    const { camera } = useThree();
+    const [lasers, setLasers] = useState([]);
+    
+    useEffect(() => {
+        const onShoot = (e) => {
+            if (!isEquipped || !document.pointerLockElement || e.button !== 0) return;
+            
+            const camDir = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+            
+            // Calculate a nice offset for the gun
+            const right = new THREE.Vector3().crossVectors(camera.up, camDir).normalize();
+            const startPos = camera.position.clone()
+                .add(camDir.clone().multiplyScalar(0.5)) // Forward
+                .add(right.clone().multiplyScalar(0.4))  // Right
+                .add(new THREE.Vector3(0, -0.3, 0));     // Down
+                
+            const endPos = camera.position.clone().add(camDir.clone().multiplyScalar(50));
+            
+            // Generate a random ID for the laser
+            const id = Date.now() + Math.random();
+            setLasers(prev => [...prev, { id, startPos, endPos }]);
+            
+            // Remove laser after 100ms
+            setTimeout(() => {
+                setLasers(prev => prev.filter(l => l.id !== id));
+            }, 100);
+        };
+        
+        window.addEventListener('mousedown', onShoot);
+        return () => window.removeEventListener('mousedown', onShoot);
+    }, [camera, isEquipped]);
+    
+    return (
+        <group>
+            {/* Draw active lasers */}
+            {lasers.map(l => {
+                const distance = l.startPos.distanceTo(l.endPos);
+                const pos = l.startPos.clone().lerp(l.endPos, 0.5);
+                
+                // Rotation looking at endPos
+                const m = new THREE.Matrix4();
+                m.lookAt(l.startPos, l.endPos, new THREE.Vector3(0, 1, 0));
+                const rot = new THREE.Euler().setFromRotationMatrix(m);
+                // Adjust cylinder rotation: default is along Y axis, needs to point along Z
+                rot.x += Math.PI / 2;
+
+                return (
+                    <mesh key={l.id} position={pos} rotation={rot}>
+                        <cylinderGeometry args={[0.02, 0.02, distance, 8]} />
+                        <meshBasicMaterial color="#00ffcc" transparent opacity={0.8} blending={THREE.AdditiveBlending} />
+                    </mesh>
+                );
+            })}
+        </group>
+    );
+}
+
+function WeaponModel({ isEquipped }) {
+    const groupRef = useRef()
+    const { camera } = useThree()
+    const lightTargetRef = useRef()
+    const spotLightRef = useRef()
+    
+    useFrame(() => {
+        if (!groupRef.current) return;
+        if (!isEquipped) {
+            groupRef.current.visible = false;
+            return;
+        }
+        groupRef.current.visible = true;
+        
+        groupRef.current.position.copy(camera.position)
+        groupRef.current.quaternion.copy(camera.quaternion)
+        
+        // Position it bottom right
+        groupRef.current.translateX(0.3)
+        groupRef.current.translateY(-0.25)
+        groupRef.current.translateZ(-0.6)
+        
+        // Subtle sway / tilt
+        groupRef.current.rotateY(-0.1)
+
+        // Update target for weapon spotlight
+        if (lightTargetRef.current && spotLightRef.current) {
+            lightTargetRef.current.position.copy(camera.position)
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+            lightTargetRef.current.position.addScaledVector(forward, 20)
+            spotLightRef.current.target = lightTargetRef.current
+        }
+    })
+
+    return (
+        <group>
+            <group ref={groupRef} scale={1.2}>
+                {/* Gun barrel */}
+                <mesh position={[0, 0, -0.2]} rotation={[Math.PI/2, 0, 0]}>
+                    <cylinderGeometry args={[0.03, 0.04, 0.4, 8]} />
+                    <meshStandardMaterial color="#222" metalness={0.8} />
+                </mesh>
+                {/* Gun body */}
+                <mesh position={[0, 0, 0]}>
+                    <boxGeometry args={[0.1, 0.15, 0.3]} />
+                    <meshStandardMaterial color="#333" metalness={0.8} />
+                </mesh>
+                {/* Glowing power core */}
+                <mesh position={[0, 0.05, 0]}>
+                    <sphereGeometry args={[0.04, 8, 8]} />
+                    <meshBasicMaterial color="#00ffcc" />
+                </mesh>
+                
+                {/* Integrated Flashlight (bottom mount) */}
+                <mesh position={[0, -0.05, -0.15]}>
+                    <boxGeometry args={[0.04, 0.04, 0.1]} />
+                    <meshStandardMaterial color="#111" metalness={0.9} />
+                </mesh>
+                <mesh position={[0, -0.05, -0.21]}>
+                    <circleGeometry args={[0.015, 12]} />
+                    <meshBasicMaterial color="#ffffff" />
+                </mesh>
+                
+                {/* Weapon Spotlight */}
+                <spotLight
+                    ref={spotLightRef}
+                    position={[0, -0.05, -0.2]}
+                    intensity={150}
+                    angle={0.4}
+                    penumbra={0.7}
+                    distance={60}
+                    color="#ffffff"
+                />
+            </group>
+            {isEquipped && <object3D ref={lightTargetRef} />}
+        </group>
+    )
+}
+
+function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, coresCollected, setCoresCollected, setOxygen, setKeypadActive, keypadActive, empActive }) {
   const { camera } = useThree()
   const [move, setMove] = useState({ forward: false, backward: false, left: false, right: false, jump: false })
-  const [landed, setLanded] = useState(false)
   const [flashlightOn, setFlashlightOn] = useState(false)
-  const [inCockpit, setInCockpit] = useState(missionStage === 0)
+  const [landed, setLanded] = useState(false)
+  
+  // Weapon state
+  const [hasWeapon, setHasWeapon] = useState(false)
+  const [weaponEquipped, setWeaponEquipped] = useState(false)
   
   const velocityY = useRef(0)
-  const startY = useMemo(() => getTerrainHeight(0, 15), [])
   const spawnY = useMemo(() => getTerrainHeight(5, 12), [])
+  const hasSpawned = useRef(false)
+  
+  // Weapon Pickup Info - Placed deep inside to force sneaking past the drone
+  const weaponPickupPos = useMemo(() => ({ x: BUNKER_INSIDE[0], y: BUNKER_INSIDE[1] + 1, z: BUNKER_INSIDE[2] - 50 }), []);
   
   useEffect(() => {
-    if (inCockpit) {
-        camera.position.set(0, startY + 4.1, 12.4)
-        camera.lookAt(new THREE.Vector3(0, startY + 4.1, -100))
-    } else if (missionStage === 0) {
-        // Safe spawn outside the ship mesh
+    if (!hasSpawned.current && !isInsideBunker && missionStage < 3) {
         camera.position.set(5, spawnY + 1.85, 12)
         camera.lookAt(new THREE.Vector3(0, spawnY + 1.85, -50))
+        hasSpawned.current = true
     }
+  }, [isInsideBunker, missionStage, spawnY, camera])
     
+  useEffect(() => {
+      if (empActive) {
+          setFlashlightOn(false)
+      }
+  }, [empActive])
+
+  useEffect(() => {
     // Key handlers
     const handleKeyDown = (e) => {
-      if (inCockpit) {
-          if (e.code === 'KeyE') {
-              setInCockpit(false)
-              setLanded(true)
-              if (missionStage === 0) setMissionStage(1)
-              const sy = getTerrainHeight(5, 12)
-              camera.position.set(5, sy + 1.85, 12)
-              camera.lookAt(new THREE.Vector3(0, sy + 1.85, -50))
-          }
-          return;
-      }
-      
       // Toggle for single press keys
       if (e.code === 'KeyT') {
-          setFlashlightOn(prev => !prev)
+          if (!empActive) {
+              setFlashlightOn(prev => {
+                  if (!prev) setWeaponEquipped(false); // stow weapon if equipping flashlight
+                  return !prev;
+              })
+          }
+      }
+      if (e.code === 'KeyQ' || e.code === 'Digit1') {
+          setWeaponEquipped(prev => {
+              if (!hasWeaponRef.current) return false;
+              if (!prev) setFlashlightOn(false); // stow flashlight if equipping weapon
+              return !prev;
+          });
       }
       if (e.code === 'KeyE') {
-          // Interaction key - handled by proximity checks in useFrame
           setMove(m => ({ ...m, interact: true }))
       }
 
@@ -456,23 +623,31 @@ function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, 
             case 'KeyE': setMove(m => ({ ...m, interact: false })); break;
         }
     }
-    document.addEventListener('keydown', handleKeyDown)
+    
+    // Create a ref for hasWeapon so it is always fresh in the event listener without re-binding
+    // We achieve this via ref:
+    const onHandleDownWrapper = (e) => handleKeyDown(e);
+    document.addEventListener('keydown', onHandleDownWrapper)
     document.addEventListener('keyup', handleKeyUp)
     return () => {
-        document.removeEventListener('keydown', handleKeyDown)
+        document.removeEventListener('keydown', onHandleDownWrapper)
         document.removeEventListener('keyup', handleKeyUp)
     }
-  }, [camera, inCockpit])
+  }, [camera, empActive])
+
+  const hasWeaponRef = useRef(false);
+  useEffect(() => {
+      hasWeaponRef.current = hasWeapon;
+  }, [hasWeapon]);
   
   useFrame((state, delta) => {
-        if (inCockpit) return;
         const eyeHeight = isInsideBunker ? 1.8 : 1.85
 
     // Terrain height at current X, Z
     const groundHeight = (missionStage >= 12) ? 0 : getTerrainHeight(camera.position.x, camera.position.z)
 
-    // Freeze during cinematic
-    if (missionStage === 11) return;
+    // Freeze during cinematic or when keypad is active
+    if (missionStage === 11 || keypadActive) return;
 
     // Teleport to surface when restored
     if (missionStage === 12 && camera.position.y < -2) {
@@ -488,6 +663,14 @@ function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, 
             velocityY.current = 0
         }
         return
+    }
+
+    // Restore oxygen when close to spawn
+    if (missionStage < 3 && setOxygen) {
+        const distToSpawn = Math.sqrt((camera.position.x - 5)**2 + (camera.position.z - 12)**2);
+        if (distToSpawn < 10) {
+            setOxygen(prev => prev < 100 ? 100 : prev);
+        }
     }
 
     // Slower movement in bunker for more exploration time
@@ -548,7 +731,7 @@ function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, 
     velocityY.current -= 60.0 * delta; 
     camera.position.y += velocityY.current * delta;
     
-    const newGroundHeight = (missionStage >= 12) ? 0 : getTerrainHeight(camera.position.x, camera.position.z);
+    const newGroundHeight = isInsideBunker ? BUNKER_INSIDE[1] : ((missionStage >= 12) ? 0 : getTerrainHeight(camera.position.x, camera.position.z));
     const floor = newGroundHeight + eyeHeight;
     
     if (camera.position.y < floor) {
@@ -565,19 +748,38 @@ function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, 
     
     const distToEntrance = Math.sqrt((px - BUNKER_ENTRANCE[0])**2 + (pz - BUNKER_ENTRANCE[2])**2);
     
+    const setKeypadActiveProp = setKeypadActive; // passed via props
+    
+    if (missionStage === 3 && distToEntrance < 10 && camera.position.y > -2) {
+        camera.position.set(BUNKER_INSIDE[0], BUNKER_INSIDE[1] + eyeHeight, BUNKER_INSIDE[2]);
+        camera.lookAt(new THREE.Vector3(BUNKER_INSIDE[0], BUNKER_INSIDE[1] + eyeHeight, BUNKER_INSIDE[2] - 50));
+        velocityY.current = 0;
+    }
+
     if (missionStage === 1 && distToEntrance < 6) {
         setMissionStage(2);
     }
     
-    if (missionStage === 2 && move.interact && distToEntrance < 5) {
-        camera.position.set(BUNKER_INSIDE[0], BUNKER_INSIDE[1] + eyeHeight, BUNKER_INSIDE[2]);
-        velocityY.current = 0;
-        setMissionStage(3);
+    if (missionStage === 2 && move.interact && distToEntrance < 10) {
+        if (setKeypadActiveProp) setKeypadActiveProp(true);
         setMove(m => ({ ...m, interact: false }));
     }
     
     // Inside bunker: terminal interactions
     if (isInsideBunker && move.interact && !dialogVisible) {
+        // Pick up weapon
+        if (!hasWeapon) {
+            const d = Math.sqrt((px - weaponPickupPos.x)**2 + (pz - weaponPickupPos.z)**2);
+            if (d < 3.5) {
+                setHasWeapon(true);
+                setWeaponEquipped(true);
+                setFlashlightOn(false); // Can't hold both weapon and flashlight
+                if (missionStage === 3) setMissionStage(4);
+                setMove(m => ({ ...m, interact: false }));
+                return;
+            }
+        }
+    
         for (const term of TERMINAL_CONFIG) {
             if (missionStage === term.activeStage) {
                 const tz = BUNKER_INSIDE[2] + term.zOff;
@@ -591,7 +793,7 @@ function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, 
         }
         
         // Reaktor activation
-        if (missionStage === 8) {
+        if (missionStage === 9) {
             const tmZ = BUNKER_INSIDE[2] - 79; // Reactor
             const d = Math.sqrt((px - BUNKER_INSIDE[0])**2 + (pz - tmZ)**2);
             if (d < 3.5) {
@@ -599,8 +801,8 @@ function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, 
             }
         }
 
-        // Energy core collection (stage 7)
-        if (missionStage === 7) {
+        // Energy core collection (stage 8)
+        if (missionStage === 8) {
             const corePositions = [
                 { idx: 0, x: BUNKER_INSIDE[0], z: BUNKER_INSIDE[2] - 24 },  // Energiezellen (Lab Alpha)
                 { idx: 1, x: BUNKER_INSIDE[0], z: BUNKER_INSIDE[2] - 60 },  // Antenne (Serverraum)
@@ -633,15 +835,15 @@ function Player({ missionStage, setMissionStage, isInsideBunker, dialogVisible, 
         if (hw > 0) {
             camera.position.x = Math.max(bx - hw + 0.3, Math.min(bx + hw - 0.3, camera.position.x));
         }
-        // Lock Y to bunker floor
-                camera.position.y = BUNKER_INSIDE[1] + eyeHeight;
     }
   })
   
   return (
       <>
           <FlashlightModel isOn={flashlightOn} />
-          {inCockpit && <LandedCockpit />}
+          <WeaponModel isEquipped={weaponEquipped} />
+          {!keypadActive && !dialogVisible && <EMPWeapon isEquipped={weaponEquipped} />}
+          {isInsideBunker && <WeaponPickup hasWeapon={hasWeapon} pos={weaponPickupPos} />}
       </>
   )
 }
@@ -906,7 +1108,7 @@ function RuinedCityAlley() {
 
 function WastelandGround() {
     const geometry = useMemo(() => {
-        const geo = new THREE.PlaneGeometry(1000, 1000, 180, 180); 
+        const geo = new THREE.PlaneGeometry(1000, 1000, 100, 100); 
         geo.rotateX(-Math.PI / 2);
         
         const posAttribute = geo.attributes.position;
@@ -1099,6 +1301,7 @@ function ParkedSpaceship() {
 
     return (
         <group position={[0, y + 2.2, 15]} scale={5}>
+            {/* ... rest of the spaceship ... */}
             <group>
                 <mesh position={[0, 0, 0.35]}>
                     <boxGeometry args={[1.05, 0.55, 3.3]} />
@@ -1193,8 +1396,20 @@ function Bunker({ missionStage }) {
     const auraMatRef = useRef()
     const beamMatRef = useRef()
     
+    const rubble = useMemo(() => {
+        return [...Array(12)].map((_, i) => {
+            const angle = (i / 12) * Math.PI * 2;
+            const dist = 5 + Math.random() * 3;
+            return {
+                pos: [Math.cos(angle) * dist, 0.2, Math.sin(angle) * dist + -2],
+                rot: [Math.random(), Math.random(), Math.random()],
+                scale: 0.3 + Math.random() * 0.5
+            };
+        });
+    }, []);
+
     // Register large bounding circle for the bunker exterior
-    const colliders = useMemo(() => [{ x: BUNKER_POS[0], z: BUNKER_POS[2], radius: 6 }], []);
+    const colliders = useMemo(() => [{ x: BUNKER_POS[0], z: BUNKER_POS[2], radius: 2.7 }], []);
     useColliders(colliders);
     
     useFrame((state) => {
@@ -1367,6 +1582,39 @@ function Bunker({ missionStage }) {
                 />
             )}
             
+            {/* Keypad on the wall next to the door */}
+            <group position={[1.8, 1.5, 2.0]} rotation={[0, -0.1, 0]}>
+                <mesh>
+                    <boxGeometry args={[0.4, 0.6, 0.1]} />
+                    <meshStandardMaterial color="#222" metalness={0.8} />
+                </mesh>
+                {/* Keypad screen */}
+                <mesh position={[0, 0.15, 0.06]}>
+                    <planeGeometry args={[0.3, 0.2]} />
+                    <meshBasicMaterial color="#000" />
+                </mesh>
+                {/* Status light */}
+                <mesh position={[0, 0.35, 0.02]}>
+                    <sphereGeometry args={[0.03, 8, 8]} />
+                    <meshBasicMaterial color={missionStage === 2 ? "#00ff00" : "#ff0000"} />
+                </mesh>
+                {/* Buttons */}
+                {[...Array(9)].map((_, i) => (
+                    <mesh key={i} position={[(i % 3 - 1) * 0.1, -0.1 - Math.floor(i / 3) * 0.1, 0.06]}>
+                        <boxGeometry args={[0.08, 0.08, 0.02]} />
+                        <meshStandardMaterial color="#444" />
+                    </mesh>
+                ))}
+                {missionStage === 2 && (
+                    <>
+                        <pointLight position={[0, 0.1, 0.2]} color="#00ff66" distance={2} intensity={1} />
+                        <Text position={[0, 0.7, 0]} fontSize={0.15} color="#00ff66" anchorX="center" anchorY="bottom">
+                            [ E ] Code Eingeben
+                        </Text>
+                    </>
+                )}
+            </group>
+            
             {/* Warning signs */}
             <mesh position={[3.5, 2, 2]} rotation={[0, -0.1, 0]}>
                 <planeGeometry args={[1.5, 1]} />
@@ -1374,17 +1622,12 @@ function Bunker({ missionStage }) {
             </mesh>
             
             {/* Rubble around entrance */}
-            {[...Array(12)].map((_, i) => {
-                const angle = (i / 12) * Math.PI * 2;
-                const dist = 5 + Math.random() * 3;
-                return (
-                    <mesh key={i} position={[Math.cos(angle) * dist, 0.2, Math.sin(angle) * dist + -2]} 
-                          rotation={[Math.random(), Math.random(), Math.random()]}>
-                        <dodecahedronGeometry args={[0.3 + Math.random() * 0.5, 0]} />
-                        <meshStandardMaterial color="#222" roughness={0.9} />
-                    </mesh>
-                )
-            })}
+            {rubble.map((r, i) => (
+                <mesh key={i} position={r.pos} rotation={r.rot}>
+                    <dodecahedronGeometry args={[r.scale, 0]} />
+                    <meshStandardMaterial color="#222" roughness={0.9} />
+                </mesh>
+            ))}
             
             {/* Rusted pipes on exterior */}
             <mesh position={[-5.2, 2, -2]} rotation={[0, 0, 0.1]}>
@@ -1397,6 +1640,21 @@ function Bunker({ missionStage }) {
             </mesh>
         </group>
     )
+}
+
+function FlickeringLight({ color, distance, position, baseIntensity = 1.0 }) {
+    const lightRef = useRef();
+    useFrame((state) => {
+        if (!lightRef.current) return;
+        // Chaos / flickering math
+        const t = state.clock.getElapsedTime();
+        const flicker = Math.sin(t * 12) * Math.sin(t * 17) * Math.cos(t * 7);
+        // Sometimes it nearly completely turns off
+        const intensity = flicker > 0.6 ? baseIntensity * 0.1 : baseIntensity * (1 + flicker * 0.3);
+        lightRef.current.intensity = Math.max(0, intensity);
+    });
+
+    return <pointLight ref={lightRef} position={position} color={color} distance={distance} decay={2} />;
 }
 
 function BunkerInterior({ missionStage, setMissionStage, coresCollected }) {
@@ -1470,11 +1728,11 @@ function BunkerInterior({ missionStage, setMissionStage, coresCollected }) {
             ))}
             
             {/* === LIGHTING === */}
-            {/* Combined room lights - fewer for performance */}
-            <pointLight position={[bx, by + 3.5, bz - 12]} color="#334455" intensity={1.0} distance={28} decay={2} />
-            <pointLight position={[bx, by + 3.5, bz - 40]} color="#223322" intensity={0.8} distance={28} decay={2} />
-            <pointLight position={[bx, by + 3.5, bz - 62]} color="#222244" intensity={0.8} distance={28} decay={2} />
-            <pointLight position={[bx, by + 3.5, bz - 82]} color="#442222" intensity={1.0} distance={24} decay={2} />
+            {/* Flickering horror lights */}
+            <FlickeringLight position={[bx, by + 3.5, bz - 12]} color="#445566" baseIntensity={1.5} distance={28} />
+            <FlickeringLight position={[bx, by + 3.5, bz - 40]} color="#334433" baseIntensity={1.2} distance={28} />
+            <FlickeringLight position={[bx, by + 3.5, bz - 62]} color="#222244" baseIntensity={1.0} distance={28} />
+            <FlickeringLight position={[bx, by + 3.5, bz - 82]} color="#662222" baseIntensity={2.0} distance={24} />
             
             {/* === 6 TERMINALS === */}
             {TERMINAL_CONFIG.map((tc, i) => {
@@ -1522,7 +1780,7 @@ function BunkerInterior({ missionStage, setMissionStage, coresCollected }) {
             })}
             
             {/* === 4 MISSION TASKS === */}
-            {missionStage === 7 && (
+            {missionStage === 8 && (
                 <>
                     {/* Energiezelle (Lab Alpha) */}
                     {!coresCollected[0] && (
@@ -1633,12 +1891,12 @@ function BunkerInterior({ missionStage, setMissionStage, coresCollected }) {
                 </mesh>
                 <mesh position={[0, 1.5, 0]}>
                     <cylinderGeometry args={[0.8, 0.8, 3.5, 12]} />
-                    <meshBasicMaterial color={missionStage >= 8 ? "#ffaa00" : "#220000"} />
+                    <meshBasicMaterial color={missionStage >= 9 ? "#ffaa00" : "#220000"} />
                 </mesh>
-                <pointLight position={[0, 1.5, 0]} color={missionStage >= 8 ? "#ffaa00" : "#ff2200"} distance={8} decay={2} intensity={missionStage >= 8 ? 5 : 1.5} />
+                <pointLight position={[0, 1.5, 0]} color={missionStage >= 9 ? "#ffaa00" : "#ff2200"} distance={8} decay={2} intensity={missionStage >= 9 ? 5 : 1.5} />
                 
                 {/* Reaktor zündung prompt glow */}
-                {missionStage === 8 && (
+                {missionStage === 9 && (
                     <mesh position={[0, 3.8, 0]}>
                         <planeGeometry args={[2, 0.4]} />
                         <meshBasicMaterial color="#ffaa00" transparent opacity={0.5} side={THREE.DoubleSide} />
@@ -1772,31 +2030,68 @@ function BunkerInterior({ missionStage, setMissionStage, coresCollected }) {
 }
 
 function BunkerBarrier({ missionStage }) {
+    const barrierData = useMemo(() => {
+        return [...Array(20)].map((_, i) => {
+            const angle = (i / 20) * Math.PI * 2;
+            const dist = 11 + Math.random() * 2;
+            const height = 1 + Math.random() * 3;
+            return {
+                pos: [Math.cos(angle) * dist, height/2, Math.sin(angle) * dist],
+                rot: [Math.random() * 0.3, angle, Math.random() * 0.3],
+                args: [1.5 + Math.random(), height, 0.5 + Math.random()]
+            };
+        });
+    }, []);
+
     if (missionStage >= 3) return null;
     
     const bunkerY = getTerrainHeight(BUNKER_POS[0], BUNKER_POS[2]);
     
-    // Instead of using useMemo inside the conditional return (which violates rules of hooks), 
-    // we just use a small static collider for the debris around the door area.
-    // However, the bunker itself is already solid. But if we need it:
-    
     return (
         <group position={[BUNKER_POS[0], bunkerY, BUNKER_POS[2]]}>
-            {[...Array(20)].map((_, i) => {
-                const angle = (i / 20) * Math.PI * 2;
-                const dist = 11 + Math.random() * 2;
-                const height = 1 + Math.random() * 3;
-                return (
-                    <mesh key={i} 
-                        position={[Math.cos(angle) * dist, height/2, Math.sin(angle) * dist]}
-                        rotation={[Math.random() * 0.3, angle, Math.random() * 0.3]}>
-                        <boxGeometry args={[1.5 + Math.random(), height, 0.5 + Math.random()]} />
-                        <meshStandardMaterial color="#1a1a1a" roughness={0.9} metalness={0.2} />
-                    </mesh>
-                )
-            })}
+            {barrierData.map((d, i) => (
+                <mesh key={i} position={d.pos} rotation={d.rot}>
+                    <boxGeometry args={d.args} />
+                    <meshStandardMaterial color="#1a1a1a" roughness={0.9} metalness={0.2} />
+                </mesh>
+            ))}
         </group>
     )
+}
+
+function CodeWall() {
+    const y = getTerrainHeight(2, 5);
+    return (
+        <group position={[2, y + 1.5, 5]} rotation={[0, Math.PI / 8, 0]}>
+            {/* Base structure */}
+            <mesh castShadow receiveShadow>
+                <boxGeometry args={[4.2, 3.2, 0.4]} />
+                <meshStandardMaterial color="#1a1a1a" roughness={0.7} metalness={0.8} />
+            </mesh>
+            {/* Screen background */}
+            <mesh position={[0, 0, 0.22]}>
+                <planeGeometry args={[3.8, 2.8]} />
+                <meshBasicMaterial color="#050510" />
+            </mesh>
+            {/* Neon Frame */}
+            <mesh position={[0, 0, 0.21]}>
+                <boxGeometry args={[4.0, 3.0, 0.05]} />
+                <meshBasicMaterial color="#00ffcc" wireframe />
+            </mesh>
+            {/* Light glow */}
+            <pointLight position={[0, 0, 1]} color="#00ffcc" distance={10} intensity={2} />
+
+            <Text position={[0, 0.9, 0.26]} fontSize={0.5} color="#00ffcc" anchorX="center" anchorY="middle">
+                [ BUNKERCODE ]
+            </Text>
+            <Text position={[0, 0.1, 0.26]} fontSize={1.4} color="#ffffff">
+                7341
+            </Text>
+            <Text position={[0, -0.9, 0.26]} fontSize={0.25} color="#cccccc" anchorX="center" anchorY="middle" fillOpacity={0.8}>
+                SYSTEM STATUS: LOKAL GESPEICHERT
+            </Text>
+        </group>
+    );
 }
 
 // ============= RESTORED WORLD (after time reversal) =============
@@ -2204,10 +2499,267 @@ function RestoredWorld() {
     )
 }
 
-export default function SurfaceScene({ missionStage, setMissionStage, dialogVisible, coresCollected, setCoresCollected }) {
+function DeadGuardWithCode({ missionStage }) {
+    if (missionStage >= 3) return null; // Only show outside
+    
+    // Position near the bunker entrance
+    const pos = [BUNKER_ENTRANCE[0] - 3, 0, BUNKER_ENTRANCE[2] + 4];
+    const y = getTerrainHeight(pos[0], pos[2]);
+    
+    return (
+        <group position={[pos[0], y + 0.1, pos[2]]}>
+            <mesh position={[0, 0.2, 0]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.3, 0.3, 1.8, 8]} />
+                <meshStandardMaterial color="#2a2a2a" roughness={0.9} />
+            </mesh>
+            <mesh position={[1, 0.25, 0.2]}>
+                <sphereGeometry args={[0.25, 16, 16]} />
+                <meshStandardMaterial color="#888" roughness={0.7} />
+            </mesh>
+            
+            {/* Flashlight illuminating note */}
+            <pointLight position={[0, 0.5, 0]} color="#aaaaaa" distance={5} decay={2} intensity={1} />
+            
+            {/* The note with code */}
+            <mesh position={[-0.5, 0.05, 0.8]} rotation={[-Math.PI / 2, 0, -0.3]}>
+                <planeGeometry args={[0.4, 0.6]} />
+                <meshStandardMaterial color="#eee" roughness={0.8} />
+            </mesh>
+            
+            <Html position={[-0.5, 0.3, 0.8]} center zIndexRange={[100, 0]} distanceFactor={8}>
+                <div style={{
+                    background: 'rgba(0,0,0,0.8)', padding: '5px 10px', 
+                    color: '#fff', border: '1px solid #777', 
+                    fontFamily: 'monospace', fontSize: '12px',
+                    pointerEvents: 'none'
+                }}>
+                    HELIOS CODE: <span style={{ color: '#0f0', fontWeight: 'bold', fontSize: '16px' }}>7341</span>
+                </div>
+            </Html>
+        </group>
+    );
+}
+
+function MovingRobot({ isInsideBunker, setOxygen, triggerEmp }) {
+    const robotRef = useRef();
+    const lightTargetRef = useRef();
+    const { camera } = useThree();
+    
+    // Health and state
+    const [hp, setHp] = useState(100);
+    const [isDead, setIsDead] = useState(false);
+    
+    const [state] = useState(() => ({
+        x: BUNKER_INSIDE[0],
+        z: BUNKER_INSIDE[2] - 40,
+        vx: 0.03,
+        vz: -0.06
+    }));
+
+    // Player shooting detection
+    useEffect(() => {
+        const onShoot = (e) => {
+            if (!document.pointerLockElement || e.button !== 0 || isDead) return;
+            
+            const px = camera.position.x;
+            const pz = camera.position.z;
+            
+            const dx = state.x - px;
+            const dz = state.z - pz;
+            const distSq = dx * dx + dz * dz;
+            
+            // Check if player is close enough to hit (e.g. 20 units)
+            if (distSq < 400 && robotRef.current) {
+                const dirToRobot = new THREE.Vector3(dx, robotRef.current.position.y - camera.position.y, dz).normalize();
+                const camDir = new THREE.Vector3();
+                camera.getWorldDirection(camDir);
+                
+                // If player is looking at the robot (small angle difference)
+                if (dirToRobot.dot(camDir) > 0.97) {
+                    setHp(prev => {
+                        const nextHp = prev - 100; // 1 Hit EMP kill
+                        if (nextHp <= 0) {
+                            setIsDead(true);
+                            if (setOxygen) setOxygen(100);
+                            
+                            // Wake up after 10 seconds
+                            setTimeout(() => {
+                                setIsDead(false);
+                                setHp(100); // Reset HP
+                            }, 10000);
+                        }
+                        return nextHp;
+                    });
+                }
+            }
+        };
+        window.addEventListener('mousedown', onShoot);
+        return () => window.removeEventListener('mousedown', onShoot);
+    }, [camera, isDead, state, setOxygen]);
+
+    useFrame((stateFrame, delta) => {
+        if (!robotRef.current) return;
+        
+        if (isDead) {
+            // Disabled animation: sink to floor and tilt safely
+            const targetY = BUNKER_INSIDE[1] + 0.5;
+            if (robotRef.current.position.y > targetY) {
+                robotRef.current.position.y -= delta * 2;
+            }
+            // Tilt over but don't spin endlessly
+            robotRef.current.rotation.x = THREE.MathUtils.lerp(robotRef.current.rotation.x, Math.PI / 2.5, delta * 3);
+            robotRef.current.rotation.z = THREE.MathUtils.lerp(robotRef.current.rotation.z, 0.2, delta * 3);
+            return;
+        } else {
+            // When alive, we want it to stay upright
+            robotRef.current.rotation.x = THREE.MathUtils.lerp(robotRef.current.rotation.x, 0, delta * 5);
+            robotRef.current.rotation.z = THREE.MathUtils.lerp(robotRef.current.rotation.z, 0, delta * 5);
+        }
+
+        let nx = state.x + state.vx * delta * 60;
+        let nz = state.z + state.vz * delta * 60;
+
+        const hw = getBunkerHalfWidth(nz);
+        if (hw <= 1.0) {
+            // Turn around before hitting tight corridors
+            state.vx *= -1;
+            state.vz *= -1;
+            nx = state.x + state.vx * delta * 60;
+            nz = state.z + state.vz * delta * 60;
+        } else {
+            if (Math.abs(nx - BUNKER_INSIDE[0]) + 0.5 > hw) {
+                state.vx *= -1;
+            }
+            // Patrol between Bio-Lab (-48) and Corridor (-18)
+            if (nz > BUNKER_INSIDE[2] - 20 || nz < BUNKER_INSIDE[2] - 46) {
+                state.vz *= -1;
+            }
+        }
+        
+        state.x = nx;
+        state.z = nz;
+        
+        // Make the drone float
+        const hoverY = BUNKER_INSIDE[1] + 1.2 + Math.sin(stateFrame.clock.elapsedTime * 2) * 0.15;
+        robotRef.current.position.set(nx, hoverY, nz);
+        
+        // Smoothly rotate towards movement direction
+        const targetRot = Math.atan2(state.vx, state.vz);
+        robotRef.current.rotation.y += (targetRot - robotRef.current.rotation.y) * 0.1;
+
+        // Position light target slightly ahead
+        if (lightTargetRef.current) {
+            lightTargetRef.current.position.set(
+                nx + Math.sin(robotRef.current.rotation.y) * 5,
+                BUNKER_INSIDE[1],
+                nz + Math.cos(robotRef.current.rotation.y) * 5
+            );
+        }
+
+        if (isInsideBunker) {
+            const dx = camera.position.x - nx;
+            const dz = camera.position.z - nz;
+            const distSq = dx * dx + dz * dz;
+            const dist = Math.sqrt(distSq);
+            
+            // Check if player is nearby or in spotlight cone
+            const dirToPlayer = new THREE.Vector3(dx, 0, dz).normalize();
+            const robotDir = new THREE.Vector3(Math.sin(robotRef.current.rotation.y), 0, Math.cos(robotRef.current.rotation.y));
+            const viewDot = dirToPlayer.dot(robotDir);
+
+            // Detected if very close (radius 1.5) or in vision cone (distance 6, angle 45 deg)
+            const isDetected = (dist < 1.5) || (dist < 8 && viewDot > 0.7);
+
+            if (isDetected) {
+                if (triggerEmp) triggerEmp();
+                
+                // Punishment: Drone forcefully ejects the player back to the bunker entrance corridor
+                camera.position.set(BUNKER_INSIDE[0], BUNKER_INSIDE[1] + 1.8, BUNKER_INSIDE[2] - 5);
+                camera.lookAt(new THREE.Vector3(BUNKER_INSIDE[0], BUNKER_INSIDE[1] + 1.8, BUNKER_INSIDE[2] - 50));
+                
+                // Turn drone around quickly so it doesn't instantly catch them again if they run back
+                state.vx *= -1;
+                state.vz *= -1;
+            }
+        }
+    });
+
+    return (
+        <>
+            <group ref={robotRef}>
+                <mesh position={[0, -0.2, 0]}>
+                    <cylinderGeometry args={[0.3, 0.4, 0.8, 16]} />
+                    <meshStandardMaterial color={isDead ? "#1a1a1a" : "#2a2a2a"} metalness={0.9} roughness={0.4} />
+                </mesh>
+                <mesh position={[0, 0.3, 0]}>
+                    <sphereGeometry args={[0.25, 16, 16]} />
+                    <meshStandardMaterial color="#111" />
+                </mesh>
+                
+                {/* Glowing Eye */}
+                {!isDead && (
+                    <mesh position={[0, 0.3, 0.22]}>
+                        <sphereGeometry args={[0.08, 8, 8]} />
+                        <meshBasicMaterial color="#ff0000" />
+                    </mesh>
+                )}
+
+                {/* Status UI / Health Bar (visible when looking near it) */}
+                {!isDead && (
+                    <group position={[0, 0.9, 0]}>
+                         {/* Background bar */}
+                        <mesh position={[0, 0, 0]}>
+                            <planeGeometry args={[1, 0.1]} />
+                            <meshBasicMaterial color="#330000" />
+                        </mesh>
+                        {/* Foreground bar */}
+                        <mesh position={[-0.5 + (hp/100)*0.5, 0, 0.01]}>
+                            <planeGeometry args={[hp/100, 0.1]} />
+                            <meshBasicMaterial color="#ff0000" />
+                        </mesh>
+                        <Text position={[0, 0.2, 0]} fontSize={0.15} color="#ff0000" anchorX="center">
+                            TARGET {hp}%
+                        </Text>
+                    </group>
+                )}
+                
+                {/* Sparks if dead */}
+                {isDead && (
+                    <pointLight position={[0, 0, 0]} color="#00aaff" distance={2} intensity={0.5 + Math.random() * 0.5} />
+                )}
+                
+                {/* Searchlight */}
+                {!isDead && (
+                    <spotLight 
+                        position={[0, 0.3, 0.2]} 
+                        color="#ff3300"
+                        intensity={15} 
+                        angle={0.6} 
+                        penumbra={0.5} 
+                        distance={15}
+                        castShadow
+                        target={lightTargetRef.current}
+                    />
+                )}
+            </group>
+            
+            {/* Target for the spotlight to point at */}
+            <object3D ref={lightTargetRef} />
+        </>
+    );
+}
+
+export default function SurfaceScene({ missionStage, setMissionStage, dialogVisible, coresCollected, setCoresCollected, setOxygen, setKeypadActive, keypadActive }) {
   const { scene } = useThree()
   const isInsideBunker = missionStage >= 3 && missionStage <= 11;
   const isRestored = missionStage === 12;
+  
+  const [empActive, setEmpActive] = useState(false);
+  
+  const triggerEmp = useCallback(() => {
+      setEmpActive(true);
+      setTimeout(() => setEmpActive(false), 10000);
+  }, []);
   
   useEffect(() => {
     if (isInsideBunker) {
@@ -2223,18 +2775,69 @@ export default function SurfaceScene({ missionStage, setMissionStage, dialogVisi
     }
   }, [scene, isInsideBunker, isRestored, missionStage])
 
-  // Auto advance from stage 7 to 8 when all 4 systems are activated
+  // Auto advance from stage 8 to 9 when all 4 systems are activated
   useEffect(() => {
-    if (missionStage === 7 && coresCollected[0] && coresCollected[1] && coresCollected[2] && coresCollected[3]) {
-      const timer = setTimeout(() => setMissionStage(8), 1500);
+    if (missionStage === 8 && coresCollected[0] && coresCollected[1] && coresCollected[2] && coresCollected[3]) {
+      const timer = setTimeout(() => setMissionStage(9), 1500);
       return () => clearTimeout(timer);
     }
   }, [missionStage, coresCollected, setMissionStage])
 
+  // Unlock cursor if keypad becomes active
+  useEffect(() => {
+    if (keypadActive) {
+      document.exitPointerLock?.();
+    }
+  }, [keypadActive])
+
   return (
     <>
-      <PointerLockControls selector="#root" />
-      <Player missionStage={missionStage} setMissionStage={setMissionStage} isInsideBunker={isInsideBunker} dialogVisible={dialogVisible} coresCollected={coresCollected} setCoresCollected={setCoresCollected} />
+      {!keypadActive && <PointerLockControls selector="#root" />}
+      <Player missionStage={missionStage} setMissionStage={setMissionStage} isInsideBunker={isInsideBunker} dialogVisible={dialogVisible} coresCollected={coresCollected} setCoresCollected={setCoresCollected} setOxygen={setOxygen} setKeypadActive={setKeypadActive} keypadActive={keypadActive} empActive={empActive} />
+      
+      {empActive && (
+          <Html fullscreen style={{ pointerEvents: 'none', zIndex: 9999 }}>
+              <div style={{
+                  width: '100vw', height: '100vh',
+                  background: 'repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 2px)',
+                  mixBlendMode: 'overlay',
+                  opacity: 0.8,
+                  animation: 'glitch 0.2s infinite'
+              }}>
+                 <style>
+                    {`
+                        @keyframes glitch {
+                            0% { filter: hue-rotate(0deg) contrast(200%); }
+                            25% { filter: hue-rotate(90deg) contrast(200%) invert(30%); }
+                            50% { filter: hue-rotate(180deg) contrast(150%); }
+                            75% { filter: hue-rotate(270deg) contrast(300%) invert(20%); }
+                            100% { filter: hue-rotate(360deg) contrast(200%); }
+                        }
+                    `}
+                 </style>
+                 <div style={{
+                     position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                     color: '#f00', fontSize: '3rem', fontFamily: 'monospace', fontWeight: 'bold',
+                     textShadow: '2px 2px #0f0, -2px -2px #00f',
+                     animation: 'glitch-text 0.1s infinite'
+                 }}>
+                     EMP DETECTED - SYSTEMS OFFLINE
+                 </div>
+                 <style>
+                    {`
+                        @keyframes glitch-text {
+                            0% { transform: translate(-50%, -50%) skew(0deg); }
+                            20% { transform: translate(-52%, -50%) skew(-20deg); }
+                            40% { transform: translate(-50%, -48%) skew(20deg); }
+                            60% { transform: translate(-48%, -50%) skew(-10deg); }
+                            80% { transform: translate(-50%, -52%) skew(10deg); }
+                            100% { transform: translate(-50%, -50%) skew(0deg); }
+                        }
+                    `}
+                 </style>
+              </div>
+          </Html>
+      )}
       
       {/* Wasteland lighting */}
       {!isInsideBunker && !isRestored && (
@@ -2266,13 +2869,15 @@ export default function SurfaceScene({ missionStage, setMissionStage, dialogVisi
           <Graveyard />
           <CreepyDoll position={[5, -1, 5]} />
           <AshParticles />
-          <Cloud opacity={0.4} speed={0.16} width={250} depth={25} segments={20} position={[0, 30, 0]} color="#0a0a0a" />
-          <Cloud opacity={0.3} speed={0.2} width={200} depth={20} segments={15} position={[50, 45, -50]} color="#110d0a" />
+          {/* Reduced cloud segments significantly to improve rendering performance */}
+          <Cloud opacity={0.4} speed={0.16} width={250} depth={25} segments={8} position={[0, 30, 0]} color="#0a0a0a" />
+          <Cloud opacity={0.3} speed={0.2} width={200} depth={20} segments={6} position={[50, 45, -50]} color="#110d0a" />
           
           <ParkedSpaceship />
           <SignalBeacon missionStage={missionStage} />
           <Bunker missionStage={missionStage} />
           <BunkerBarrier missionStage={missionStage} />
+          <DeadGuardWithCode missionStage={missionStage} />
         </>
       )}
       
@@ -2281,6 +2886,7 @@ export default function SurfaceScene({ missionStage, setMissionStage, dialogVisi
       
       {/* Bunker interior - only when inside */}
       <BunkerInterior missionStage={missionStage} setMissionStage={setMissionStage} coresCollected={coresCollected} />
+      {isInsideBunker && <MovingRobot isInsideBunker={isInsideBunker} setOxygen={setOxygen} triggerEmp={triggerEmp} />}
     </>
   )
 }
